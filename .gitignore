@@ -1,0 +1,12 @@
+# Datos crudos (fuente de preprocess*.js; demasiado grandes para GitHub)
+*.csv
+
+# Referencias de diseño (no se usan en la app)
+dashboard_original.jsx
+tablero_diseño.png
+layout-agent.xlsx
+
+# Config local de Claude Code
+.claude/settings.local.json
+
+node_modules/

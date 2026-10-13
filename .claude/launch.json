@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5174", "--strictPort"],
+      "port": 5174,
+      "cwd": "app"
+    },
+    {
+      "name": "fh-calc",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:/Users/DiegoSosa/Documents/ProyectosClaude/farmacias_herrera_calculadora_precios/calculadora_fh_app/app/node_modules/vite/bin/vite.js",
+        "C:/Users/DiegoSosa/Documents/ProyectosClaude/farmacias_herrera_calculadora_precios/calculadora_fh_app/app",
+        "--port", "5175", "--strictPort"
+      ],
+      "port": 5175,
+      "cwd": "."
+    }
+  ]
+}
