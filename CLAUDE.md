@@ -21,7 +21,14 @@ Preprocesamiento (desde la raíz — son **CommonJS** con `require`, mientras qu
 ```bash
 node preprocess.js              # sales_data_fesa.csv  → app/public/data.json
 node preprocess_competitor.js   # fesa_2026-04-17.csv  → app/public/competitor.json
+node preprocess_bodesa.js       # datos_bodesa/*.csv   → app/public/bodesa/{data,competitor}.json
 ```
+
+### Bodesa (segundo cliente)
+- Los CSV se bajan de `s3://data-bunker-prod-env/derivables/bodesa/` a `datos_bodesa/` (gitignored): `sell_in_sell_out/Sales_Data_Layout_Bodesa*.csv` (20 meses, 740 SKUs — el `Lay_Out_..._enero-febrero_2025.csv` de 2 meses ya no se usa), `client/Client.csv` y los últimos `competitors/bodesa_YYYY-MM-DD.csv`.
+- La app elige cliente por URL: `http://localhost:5174/?cliente=bodesa` carga `public/bodesa/`; sin parámetro carga FESA.
+- La elasticidad de Bodesa se calcula **en el preprocess**, no en la app: log-log con efectos fijos de SKU y de mes×departamento (la venta es muy estacional y los 3 métodos de la app no lo controlan). Sale `segmentElasticity` por depto y `product.estimate` por SKU (shrinkage hacia el depto). Si `data.segmentElasticity` existe, `allAnalysis` usa `precomputedAnalysis` en lugar de `analyzeElasticity`.
+- Ventas vienen sin IVA (`IVA_FACTOR_VENTAS`), sin costo (`MARGEN_POR_DEPTO`, vacío por default). El cruce con competencia es por EAN sin dígito verificador (`EAN WM` ↔ `upc wm`).
 
 App (desde `app/`):
 ```bash
@@ -48,7 +55,7 @@ fesa_2026-04-17.csv ──preprocess_competitor.js→ competitor.json ─┘
 - **`preprocess_competitor.js`** agrupa precios de competidores por **UPC normalizado**, deduplicando por canal (se queda con el precio más bajo por canal). Salida: mapa `upc → { competitors[], minPrice, avgPrice, maxPrice, image }`.
 
 ### La llave de unión es el UPC normalizado
-El join entre ventas y competencia se hace por UPC. La función `normUpc` (quita todo lo no-dígito y ceros a la izquierda) está **duplicada idénticamente en los 3 archivos** (`preprocess_competitor.js`, `App.jsx`, y el matcheo de subida de CSV). Si modificas la normalización, cámbiala en los tres o el join se rompe silenciosamente.
+El join entre ventas y competencia se hace por UPC. La función `normUpc` (quita todo lo no-dígito y ceros a la izquierda) está **duplicada idénticamente** en `preprocess_competitor.js`, `preprocess_bodesa.js` y `App.jsx` (que la usa también en el matcheo de subida de CSV). Si modificas la normalización, cámbiala en todos o el join se rompe silenciosamente.
 
 ## Motor de cálculo — `app/src/elasticity.js`
 

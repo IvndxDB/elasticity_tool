@@ -14,7 +14,11 @@ const C = {
   text: "#0F172A", sub: "#64748B", muted: "#94A3B8",
 };
 
-const METHOD_COLORS = { ols: "#134074", loglog: "#7C3AED", arc: "#F59E0B" };
+const METHOD_COLORS = { ols: "#134074", loglog: "#7C3AED", arc: "#F59E0B", sku_fe: "#BE185D", segment: "#0E7490" };
+
+/* ── Cliente: ?cliente=bodesa carga /bodesa/*.json; sin parámetro, los datos de FESA en /public ── */
+const CLIENT = (new URLSearchParams(window.location.search).get("cliente") || "").replace(/[^a-z0-9_-]/gi, "");
+const DATA_BASE = CLIENT ? `/${CLIENT}/` : "/";
 
 /* ── Escenarios de precios: cada uno es un override de las reglas globales ── */
 const SCENARIOS = {
@@ -61,6 +65,46 @@ function interpretElasticity(e) {
   if (Math.abs(ae - 1) < 0.05) return { label: "Elasticidad unitaria", color: C.accent, explanation: "Un cambio % en precio provoca igual cambio % en demanda. El ingreso no cambia; se recomienda mantener precio." };
   if (ae < 2) return { label: "Elástica", color: C.red, explanation: "La demanda responde más que proporcionalmente al precio (|E|>1). Bajar el precio incrementa ingreso; subir lo reduce." };
   return { label: "Muy elástica", color: C.red, explanation: "Cambios pequeños en el precio generan cambios grandes en la demanda (|E|>2). Máxima sensibilidad: ajusta con cuidado." };
+}
+
+// Clientes con elasticidad pre-calculada en el preprocess (Bodesa: log-log con efectos fijos de
+// SKU y de mes por departamento). Reemplaza a los 3 métodos, que no controlan estacionalidad y
+// confunden Buen Fin / Navidad con efecto precio. Prioridad: SKU (con shrinkage al depto) >
+// departamento > sin análisis (mantener precio). `segment` se conserva para explicarlo en el detalle.
+function precomputedAnalysis(p, segments) {
+  const seg = segments[p.category];
+  const segment = seg ? { ...seg, name: p.category } : null;
+  const est = p.estimate;
+  const results = [];
+  if (est?.level === "sku") {
+    results.push({
+      method: "SKU sin estacionalidad",
+      id: "sku_fe",
+      elasticity: est.elasticity,
+      r2: est.r2,
+      rmse: null,
+      mae: null,
+      mape: null,
+      confidence: est.ownWeight >= 0.5
+        ? { level: "alta", reco: "auto_approve", label: "Alta — elasticidad propia", color: "#10B981" }
+        : { level: "media", reco: "review", label: "Media — propia + depto.", color: "#F59E0B" },
+      description: `Log-log con efectos fijos de SKU y de mes por departamento (${est.n} meses). Pendiente propia ${est.raw.elasticity} (±${est.raw.se}) combinada con ${est.prior ? `la del depto. (${est.prior})` : "un prior de 0"}: ${Math.round(est.ownWeight * 100)}% datos propios. Error ±${est.se}.`,
+    });
+  }
+  if (est && seg?.reliable) {
+    results.push({
+      method: "Panel por departamento",
+      id: "segment",
+      elasticity: seg.elasticity,
+      r2: seg.r2,
+      rmse: null,
+      mae: null,
+      mape: null,
+      confidence: { level: "media", reco: "review", label: "Media — elasticidad del depto.", color: "#F59E0B" },
+      description: `Elasticidad común de ${p.category}: ${seg.n} SKUs, ${seg.obs} meses-SKU, con efectos fijos de SKU y mes (error ±${seg.se}, t=${seg.t}).`,
+    });
+  }
+  return { results, best: results[0] || null, segment };
 }
 
 // Nota didáctica para la recomendación de precio
@@ -233,6 +277,9 @@ function kmeans(points, k, iters = 25) {
   return assignments;
 }
 
+// Sub-cluster para productos sin elasticidad utilizable (no entran al k-means)
+const NO_SIGNAL_CLUSTER = "Sin señal de elasticidad";
+
 // Clasificación ABC(D) por Pareto acumulado de revenue
 function abcClassify(rows) {
   const sorted = [...rows].sort((a, b) => b.revenue - a.revenue);
@@ -367,7 +414,7 @@ function SortHeader({ label, sortKey, sortConfig, setSortConfig, align = "center
 function MethodBadge({ method }) {
   const bg = method === "ols" ? "rgba(19,64,116,0.1)" : method === "loglog" ? "rgba(124,58,237,0.1)" : "rgba(245,158,11,0.1)";
   const fg = METHOD_COLORS[method] || C.sub;
-  const label = method === "ols" ? "OLS Lineal" : method === "loglog" ? "Log-Log" : "Arco Mid-Point";
+  const label = method === "ols" ? "OLS Lineal" : method === "loglog" ? "Log-Log" : method === "segment" ? "Panel depto." : method === "sku_fe" ? "SKU s/estacionalidad" : "Arco Mid-Point";
   return <span style={{ background: bg, color: fg, padding: "3px 10px", borderRadius: 16, fontSize: 10, fontWeight: 600 }}>{label}</span>;
 }
 
@@ -444,8 +491,8 @@ export default function App() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/data.json").then(r => r.json()),
-      fetch("/competitor.json").then(r => r.ok ? r.json() : {}).catch(() => ({})),
+      fetch(`${DATA_BASE}data.json`).then(r => r.json()),
+      fetch(`${DATA_BASE}competitor.json`).then(r => r.ok ? r.json() : {}).catch(() => ({})),
     ])
       .then(([d, comp]) => {
         setData(d);
@@ -517,7 +564,12 @@ export default function App() {
     }
     for (const p of data.products) {
       const fam = familyRules[p.sku];
-      if (fam && familyAnalysis[fam]) {
+      if (data.segmentElasticity) {
+        // Elasticidad pre-calculada: cada SKU conserva la suya. En familias, familySuggest toma
+        // la del primer SKU para fijar el precio único.
+        const pre = precomputedAnalysis(p, data.segmentElasticity);
+        map[p.sku] = fam ? { ...pre, familyName: fam } : pre;
+      } else if (fam && familyAnalysis[fam]) {
         // El SKU hereda el análisis de su familia
         map[p.sku] = { ...familyAnalysis[fam], familyName: fam };
       } else {
@@ -552,8 +604,26 @@ export default function App() {
   }, [data, familyAggregates, allAnalysis]);
 
   const departments = useMemo(() => data ? [...new Set(data.products.map(p => p.department).filter(Boolean))].sort() : [], [data]);
-  const categories = useMemo(() => data ? [...new Set(data.products.map(p => p.category).filter(Boolean))].sort() : [], [data]);
-  const classifications = useMemo(() => data ? [...new Set(data.products.map(p => p.fesa_classification).filter(Boolean))].sort() : [], [data]);
+  // Filtros encadenados: cada lista solo ofrece valores que existen con los filtros de arriba,
+  // para no poder armar combinaciones vacías (ej. TECNOLOGIA + CORSETERIA).
+  const matchesFilters = useCallback((p, dept, cat, cls) =>
+    (dept === "all" || p.department === dept) &&
+    (cat === "all" || p.category === cat) &&
+    (cls === "all" || p.fesa_classification === cls), []);
+  const categories = useMemo(() => data ? [...new Set(data.products.filter(p => matchesFilters(p, filterDept, "all", "all")).map(p => p.category).filter(Boolean))].sort() : [], [data, filterDept, matchesFilters]);
+  const classifications = useMemo(() => data ? [...new Set(data.products.filter(p => matchesFilters(p, filterDept, filterCat, "all")).map(p => p.fesa_classification).filter(Boolean))].sort() : [], [data, filterDept, filterCat, matchesFilters]);
+
+  // Al cambiar un filtro de arriba, los de abajo vuelven a "todos" si ya no tienen productos
+  const changeDept = (dept) => {
+    const cat = data.products.some(p => matchesFilters(p, dept, filterCat, "all")) ? filterCat : "all";
+    setFilterDept(dept);
+    setFilterCat(cat);
+    if (!data.products.some(p => matchesFilters(p, dept, cat, filterClass))) setFilterClass("all");
+  };
+  const changeCat = (cat) => {
+    setFilterCat(cat);
+    if (!data.products.some(p => matchesFilters(p, filterDept, cat, filterClass))) setFilterClass("all");
+  };
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -563,7 +633,9 @@ export default function App() {
       if (filterClass !== "all" && p.fesa_classification !== filterClass) return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
-        return (p.sku_des || "").toLowerCase().includes(s) || p.sku.toString().includes(s) || (p.brand || "").toLowerCase().includes(s);
+        const upcQuery = normUpc(searchTerm); // EAN/UPC sin ceros a la izquierda, igual que el cruce con competencia
+        return (p.sku_des || "").toLowerCase().includes(s) || p.sku.toString().includes(s) || (p.brand || "").toLowerCase().includes(s)
+          || (upcQuery.length >= 4 && normUpc(p.upc).includes(upcQuery));
       }
       return true;
     });
@@ -605,7 +677,7 @@ export default function App() {
         : effectiveGlobalRules;
       const ruled = applyBusinessRules(autoSuggestedRaw, currentPrice, currentMargin, compMin, effectiveRules);
       const autoSuggested = ruled.finalPrice;
-      const confidence = confidenceFromMape(best?.mape, best?.elasticity);
+      const confidence = best?.confidence || confidenceFromMape(best?.mape, best?.elasticity);
       const finalSuggested = isFinite(override) ? override : autoSuggested;
       const pctChange = currentPrice > 0 ? ((finalSuggested - currentPrice) / currentPrice) * 100 : 0;
       const elast = best?.elasticity ?? 0;
@@ -667,10 +739,13 @@ export default function App() {
     URL.revokeObjectURL(url);
   }, [portfolioData, approvals]);
 
-  // Cálculo global de clusters para que también se muestre en el Portafolio
+  // Cálculo global de clusters (tab Clusters + columna del Portafolio).
+  // El ABC va sobre TODO el portafolio filtrado; los productos sin elasticidad utilizable
+  // (sin análisis, positiva o cero) forman su propio sub-cluster en vez de entrar al k-means,
+  // donde quedarían etiquetados como "inelásticos" y candidatos a subir precio.
   const clusterInfo = useMemo(() => {
-    if (!data || !portfolioData.length) return { map: {}, groups: {} };
-    const rows = portfolioData.filter(p => p.elasticity !== null).map(p => {
+    if (!data || !portfolioData.length) return { map: {}, groups: { A: [], B: [], C: [], D: [] }, rows: [] };
+    const rows = portfolioData.map(p => {
       const units = p.series.map(s => s.units);
       const prices = p.series.map(s => s.price).filter(x => x > 0);
       const meanU = units.reduce((a, b) => a + b, 0) / Math.max(units.length, 1);
@@ -684,7 +759,7 @@ export default function App() {
         brand: p.brand,
         revenue: p.currentRevenue,
         elasticity: p.elasticity,
-        elasticitySafe: sanitizeElasticity(p.elasticity),
+        elasticitySafe: p.elasticity === null ? 0 : sanitizeElasticity(p.elasticity),
         cv,
         priceRange,
         mape: p.mape,
@@ -699,8 +774,15 @@ export default function App() {
     rows.forEach(r => groups[r.abc]?.push(r));
     const labelMap = {}; // sku -> "X-label"
     const productsByCluster = {}; // clusterKey -> [rows]
+    const assignTo = (r, cls, sub) => {
+      const key = `${cls}-${sub}`;
+      labelMap[r.sku] = { abc: cls, sub, key };
+      if (!productsByCluster[key]) productsByCluster[key] = [];
+      productsByCluster[key].push(r);
+    };
     for (const cls of Object.keys(groups)) {
-      const g = groups[cls];
+      groups[cls].filter(r => r.elasticitySafe === 0).forEach(r => assignTo(r, cls, NO_SIGNAL_CLUSTER));
+      const g = groups[cls].filter(r => r.elasticitySafe < 0);
       if (g.length === 0) continue;
       const feats = g.map(r => [
         Math.max(-4, Math.min(0, r.elasticitySafe)),
@@ -730,14 +812,9 @@ export default function App() {
         if (avgCv > 0.5) return "Estables / volátiles en volumen";
         return "Inelásticos estables";
       });
-      g.forEach((r, i) => {
-        const key = `${cls}-${labels[assign[i]]}`;
-        labelMap[r.sku] = { abc: cls, sub: labels[assign[i]], key };
-        if (!productsByCluster[key]) productsByCluster[key] = [];
-        productsByCluster[key].push(r);
-      });
+      g.forEach((r, i) => assignTo(r, cls, labels[assign[i]]));
     }
-    return { map: labelMap, groups, productsByCluster };
+    return { map: labelMap, groups, productsByCluster, rows };
   }, [data, portfolioData]);
 
   // Helper para registrar eventos en el log de auditoría
@@ -808,7 +885,7 @@ export default function App() {
           </div>
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", letterSpacing: 1 }}>PRICE ELASTICITY ENGINE</div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>Análisis de Elasticidad de Precios</div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>Análisis de Elasticidad de Precios{data.client ? ` · ${data.client}` : ""}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ padding: "5px 12px", borderRadius: 7, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", fontSize: 11, color: "rgba(255,255,255,0.8)" }}>
@@ -839,15 +916,15 @@ export default function App() {
         {/* FILTERS */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
           <input
-            type="text" placeholder="Buscar SKU, nombre, brand..."
+            type="text" placeholder="Buscar SKU, EAN, nombre, brand..."
             value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
             style={{ flex: "1 1 200px", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, outline: "none", minWidth: 180 }}
           />
-          <select value={filterDept} onChange={e => setFilterDept(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 11, color: C.text, outline: "none" }}>
+          <select value={filterDept} onChange={e => changeDept(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 11, color: C.text, outline: "none" }}>
             <option value="all">Todos Departamentos</option>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
-          <select value={filterCat} onChange={e => setFilterCat(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 11, color: C.text, outline: "none" }}>
+          <select value={filterCat} onChange={e => changeCat(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 11, color: C.text, outline: "none" }}>
             <option value="all">Todas Categorias</option>
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
@@ -1273,76 +1350,16 @@ export default function App() {
 
         {/* ═══ CLUSTERS TAB ═══ */}
         {tab === "clusters" && (() => {
-          // Construyo filas con las features del cluster
-          const rows = portfolioData.filter(p => p.elasticity !== null).map(p => {
-            const units = p.series.map(s => s.units);
-            const prices = p.series.map(s => s.price).filter(x => x > 0);
-            const meanU = units.reduce((a, b) => a + b, 0) / Math.max(units.length, 1);
-            const varU = units.reduce((a, b) => a + (b - meanU) ** 2, 0) / Math.max(units.length, 1);
-            const cv = meanU > 0 ? Math.sqrt(varU) / meanU : 0;
-            const priceRange = prices.length ? (Math.max(...prices) - Math.min(...prices)) / Math.max(...prices) : 0;
-            return {
-              sku: p.sku,
-              sku_des: p.sku_des || p.sku,
-              category: p.category,
-              brand: p.brand,
-              revenue: p.currentRevenue,
-              elasticity: p.elasticity,
-              elasticitySafe: sanitizeElasticity(p.elasticity),
-              cv,
-              priceRange,
-              mape: p.mape,
-            };
-          });
-
-          const abc = abcClassify(rows);
-          rows.forEach(r => r.abc = abc[r.sku]);
-
-          // Dentro de cada clase ABCD corro k-means (k=3) sobre [elasticidad, CV, rango precio]
-          // Primero normalizo
-          const groups = { A: [], B: [], C: [], D: [] };
-          rows.forEach(r => groups[r.abc]?.push(r));
-          const clusterLabels = {};
-          const subclusterMeta = {};
-          for (const cls of Object.keys(groups)) {
-            const g = groups[cls];
-            if (g.length === 0) continue;
-            const feats = g.map(r => [
-              Math.max(-4, Math.min(0, r.elasticitySafe)),
-              Math.max(0, Math.min(3, r.cv)),
-              Math.max(0, Math.min(1, r.priceRange)),
-            ]);
-            // normalizo columnas
-            for (let c = 0; c < 3; c++) {
-              const col = feats.map(f => f[c]);
-              const mn = Math.min(...col), mx = Math.max(...col);
-              const range = mx - mn || 1;
-              feats.forEach(f => { f[c] = (f[c] - mn) / range; });
-            }
-            const k = Math.min(3, g.length);
-            const assign = kmeans(feats, k);
-            // Caracterizo sub-clusters por la elasticidad promedio para etiquetarlos
-            const subStats = Array.from({ length: k }, () => ({ ids: [], elastSum: 0, cvSum: 0 }));
-            g.forEach((r, i) => {
-              const a = assign[i];
-              subStats[a].ids.push(r.sku);
-              subStats[a].elastSum += r.elasticitySafe;
-              subStats[a].cvSum += r.cv;
-            });
-            // Nombres según elasticidad promedio
-            const labels = subStats.map(s => {
-              const avgE = s.elastSum / Math.max(s.ids.length, 1);
-              const avgCv = s.cvSum / Math.max(s.ids.length, 1);
-              if (Math.abs(avgE) >= 1.5) return "Elásticos (|E|≥1.5)";
-              if (Math.abs(avgE) >= 0.7) return "Moderadamente elásticos";
-              if (avgCv > 0.5) return "Estables / volátiles en volumen";
-              return "Inelásticos estables";
-            });
-            g.forEach((r, i) => {
-              clusterLabels[r.sku] = `${cls}-${labels[assign[i]]}`;
-              subclusterMeta[`${cls}-${labels[assign[i]]}`] = labels[assign[i]];
-            });
+          // ABC + k-means vienen de clusterInfo (mismo cálculo que la columna del Portafolio)
+          const { rows, groups } = clusterInfo;
+          if (!rows.length) {
+            return (
+              <div style={{ textAlign: "center", padding: 60, color: C.sub, fontSize: 13 }}>
+                Ningún producto coincide con los filtros o la búsqueda actuales.
+              </div>
+            );
           }
+          const clusterLabels = Object.fromEntries(Object.entries(clusterInfo.map).map(([sku, c]) => [sku, c.key]));
 
           // Totales por ABCD
           const abcSummary = ["A", "B", "C", "D"].map(cls => {
@@ -1405,7 +1422,7 @@ export default function App() {
               <SectionHead ic="🧬">Clusterización del Portafolio</SectionHead>
 
               <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 14, fontSize: 11, color: C.sub, lineHeight: 1.6 }}>
-                Se corre una <strong>clasificación Pareto ABCD por ingreso</strong> (A: top 70% del revenue, B: +20%, C: +8%, D: últimos 2%). Dentro de cada clase se corre un <strong>k-means (k=3)</strong> sobre 3 features normalizadas: <code>elasticidad</code>, <code>coeficiente de variación de ventas</code> y <code>rango de variación de precios</code>. Esto agrupa productos con comportamiento similar dentro de cada segmento de relevancia para tomar decisiones diferenciadas.
+                Se corre una <strong>clasificación Pareto ABCD por ingreso</strong> (A: top 70% del revenue, B: +20%, C: +8%, D: últimos 2%). Dentro de cada clase se corre un <strong>k-means (k=3)</strong> sobre 3 features normalizadas: <code>elasticidad</code>, <code>coeficiente de variación de ventas</code> y <code>rango de variación de precios</code>. Esto agrupa productos con comportamiento similar dentro de cada segmento de relevancia para tomar decisiones diferenciadas. Los productos <strong>sin señal de elasticidad</strong> no entran al k-means: forman su propio grupo dentro de cada clase.
               </div>
 
               {/* ABC summary */}
@@ -1426,7 +1443,7 @@ export default function App() {
               <SectionHead ic="📊">Distribución de ingreso por sensibilidad al precio</SectionHead>
               <div style={{ background: C.card, borderRadius: 10, padding: 16, border: `1px solid ${C.border}`, marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: C.sub, marginBottom: 12, lineHeight: 1.5 }}>
-                  Cada barra suma el <strong>ingreso total</strong> de los productos (con señal de elasticidad) que caen en esa banda. En vez de un punto por producto, muestra <strong>dónde se concentra tu dinero</strong> según qué tan riesgoso es mover el precio. La etiqueta a la derecha es el % del ingreso analizado.
+                  Cada barra suma el <strong>ingreso total</strong> de los productos que caen en esa banda ("Sin señal" = no hay evidencia de sensibilidad al precio). En vez de un punto por producto, muestra <strong>dónde se concentra tu dinero</strong> según qué tan riesgoso es mover el precio. La etiqueta a la derecha es el % del ingreso analizado.
                 </div>
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={elastBands} layout="vertical" margin={{ top: 6, right: 56, left: 10, bottom: 6 }}>
@@ -1482,7 +1499,8 @@ export default function App() {
                     {sortRows(subArr, subSort).map((b, i) => {
                       let action;
                       const absE = Math.abs(b.avgElast);
-                      if (absE >= 1.5) action = "Bajar precio de forma controlada, alta sensibilidad";
+                      if (b.sub === NO_SIGNAL_CLUSTER) action = "Mantener precio: sin evidencia de sensibilidad al precio";
+                      else if (absE >= 1.5) action = "Bajar precio de forma controlada, alta sensibilidad";
                       else if (absE >= 0.7) action = "Analizar caso por caso, evaluar contra competencia";
                       else if (b.avgElast === 0) action = "Revisar datos antes de actuar";
                       else action = "Candidato a subir precio con bajo riesgo";
@@ -1902,7 +1920,7 @@ export default function App() {
                               {best ? best.elasticity.toFixed(2) : "-"}
                             </td>
                             <td style={{ padding: "10px 8px", textAlign: "center" }}>{best ? <MethodBadge method={best.id} /> : "-"}</td>
-                            <td style={{ padding: "10px 8px", textAlign: "center", fontSize: 10 }}>{best && best.mape < 999 ? best.mape.toFixed(1) + "%" : "-"}</td>
+                            <td style={{ padding: "10px 8px", textAlign: "center", fontSize: 10 }}>{best && best.mape !== null && best.mape < 999 ? best.mape.toFixed(1) + "%" : "-"}</td>
                             <td style={{ padding: "10px 8px", fontSize: 10, color: C.sub, maxWidth: 300 }}>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
                                 {f.products.slice(0, 8).map(p => (
@@ -2319,9 +2337,9 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
     if (!product) return [];
     const results = analysis?.results || [];
 
-    if (familyName) {
-      // El análisis viene AGREGADO de la familia: sus arreglos `predicted` están en la
-      // escala de unidades de toda la familia, no de este SKU. Reconstruimos la predicción
+    if (familyName || results.some(r => !r.predicted)) {
+      // El análisis viene AGREGADO (familia o departamento): sus arreglos `predicted` están en
+      // otra escala o no existen. Reconstruimos la predicción
       // por método a la escala del SKU con elasticidad constante alrededor de su media:
       //   Q_pred(P) = Q̄_sku · (P/P̄_sku)^E_método
       const valid = product.series.filter(d => d.price > 0 && d.units > 0);
@@ -2376,6 +2394,17 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
           <div style={{ textAlign: "center", padding: 60, color: C.sub }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>📊</div>
             <div style={{ fontSize: 14 }}>No hay suficiente información para calcular la elasticidad de este producto.</div>
+            {analysis?.segment && (
+              <div style={{ fontSize: 12, marginTop: 10, maxWidth: 560, marginInline: "auto", lineHeight: 1.5 }}>
+                {analysis.segment.reliable ? (
+                  <>Su departamento, <strong>{analysis.segment.name}</strong>, sí responde al precio (E={analysis.segment.elasticity.toFixed(2)}), pero la historia propia de este SKU no muestra esa sensibilidad,
+                    así que se recomienda <strong>mantener el precio</strong>.</>
+                ) : (
+                  <>En <strong>{analysis.segment.name}</strong> la elasticidad estimada es {analysis.segment.elasticity.toFixed(2)} (±{analysis.segment.se}, t={analysis.segment.t}, {analysis.segment.n} SKUs):
+                    no es estadísticamente distinta de cero o tiene el signo equivocado, y este SKU tampoco muestra señal propia, así que se recomienda <strong>mantener el precio</strong>.</>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -2473,12 +2502,14 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                       <div><span style={{ color: C.sub }}>Elasticidad:</span></div>
                       <div style={{ fontWeight: 700, textAlign: "right" }}>{r.elasticity.toFixed(3)}</div>
                       {r.r2 !== null && <><div><span style={{ color: C.sub }}>R²:</span></div><div style={{ fontWeight: 600, textAlign: "right" }}>{r.r2.toFixed(4)}</div></>}
-                      <div><span style={{ color: C.sub }}>RMSE:</span></div>
-                      <div style={{ fontWeight: 600, textAlign: "right" }}>{r.rmse.toLocaleString()}</div>
-                      <div><span style={{ color: C.sub }}>MAE:</span></div>
-                      <div style={{ fontWeight: 600, textAlign: "right" }}>{r.mae.toLocaleString()}</div>
-                      <div><span style={{ color: C.sub }}>MAPE:</span></div>
-                      <div style={{ fontWeight: 600, textAlign: "right", color: r.mape < 30 ? C.green : r.mape < 60 ? C.accent : C.red }}>{r.mape < 999 ? r.mape.toFixed(1) + "%" : "N/A"}</div>
+                      {r.mape !== null && <>
+                        <div><span style={{ color: C.sub }}>RMSE:</span></div>
+                        <div style={{ fontWeight: 600, textAlign: "right" }}>{r.rmse.toLocaleString()}</div>
+                        <div><span style={{ color: C.sub }}>MAE:</span></div>
+                        <div style={{ fontWeight: 600, textAlign: "right" }}>{r.mae.toLocaleString()}</div>
+                        <div><span style={{ color: C.sub }}>MAPE:</span></div>
+                        <div style={{ fontWeight: 600, textAlign: "right", color: r.mape < 30 ? C.green : r.mape < 60 ? C.accent : C.red }}>{r.mape < 999 ? r.mape.toFixed(1) + "%" : "N/A"}</div>
+                      </>}
                     </div>
                     <div style={{ fontSize: 9, color: C.muted, marginTop: 6 }}>{r.description}</div>
                   </div>

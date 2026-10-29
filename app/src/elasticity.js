@@ -226,8 +226,8 @@ export function suggestPrice(currentPrice, elasticity, margin) {
   const maxPrice = currentPrice * 1.3;
   if (minPrice > maxPrice) minPrice = currentPrice; // fallback si el costo ya está arriba
 
-  // Revenue under constant elasticity: argmax of (P/P0)^(1+E) · (P/P0)
-  const revenueAt = (p) => Math.pow(p / currentPrice, 1 + eSafe) * (p / currentPrice);
+  // Revenue under constant elasticity, relative to current: R/R0 = (P/P0)·(Q/Q0) = (P/P0)^(1+E)
+  const revenueAt = (p) => Math.pow(p / currentPrice, 1 + eSafe);
 
   let bestPrice = currentPrice;
   let bestRev = revenueAt(currentPrice);
