@@ -1,0 +1,73 @@
+/* Panel de filtros unificado de las pestañas de Nike (Filtros.jsx). Usa los tokens --db-* de db-ui.css.
+   Un panel glass, cada filtro con su nombre arriba; controles compactos para no saturar. */
+.nk-filtros {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 26px; padding: 14px 18px 16px;
+  border-radius: var(--db-r-lg, 22px); background: var(--db-glass-bg, var(--sp-card)); border: 1px solid var(--db-glass-border, var(--sp-line));
+  box-shadow: var(--db-glass-spec, none), var(--db-glass-shadow, none);
+  -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%);
+  position: relative; z-index: 5;
+}
+.nk-f { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.nk-f-l { font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--db-ink-3, var(--sp-ink-2)); padding-left: 2px; }
+.nk-f-c { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 38px; }
+
+/* controles compactos dentro del panel */
+.nk-filtros .sp-pills { padding: 3px; }
+.nk-filtros .sp-pills button { padding: 6px 12px; font-size: 12.5px; }
+.nk-filtros .md-menu-btn { min-height: 38px; min-width: 150px; justify-content: space-between; padding: 6px 10px 6px 14px; }
+.nk-filtros .md-menu-btn b { font-size: 13px; font-weight: 600; }
+.nk-filtros .pw-input { min-height: 38px; min-width: 210px; }
+.nk-filtros .pw-rango { min-height: 38px; padding: 4px 12px; background: transparent; border-color: transparent; }
+
+/* moneda: el tipo de cambio sólo aparece al elegir USD */
+.nk-moneda { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: relative; }
+.nk-tasa { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--db-ink-2, var(--sp-ink-2)); }
+.nk-tasa b { color: var(--db-ink, var(--sp-ink)); font-weight: 700; }
+.nk-tasa input { width: 84px; padding: 7px 9px; border-radius: 10px; border: 1px solid transparent; font: inherit; font-weight: 700; text-align: right;
+  font-variant-numeric: tabular-nums; background: var(--db-sunken-bg, var(--sp-soft)); box-shadow: var(--db-sunken-shadow-sm, none); color: var(--db-ink, var(--sp-ink)); }
+.nk-tasa input:focus { outline: none; }
+.nk-tasa input:focus-visible { outline: 2px solid var(--db-ring, var(--sp-teal)); outline-offset: 2px; }
+.nk-tasa.falta input { box-shadow: var(--db-sunken-shadow-sm, none), 0 0 0 2px var(--db-signal, #F68D2E); }
+.nk-aviso { flex-basis: 100%; margin: 0; font-size: 11.5px; color: var(--db-signal-ink, var(--sp-orange)); }
+
+/* acciones y "Clear filters" a la derecha */
+.nk-acciones { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; align-self: flex-end; min-height: 38px; }
+.nk-limpiar { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 0; border-radius: 10px; cursor: pointer;
+  background: transparent; color: var(--db-accent-ink, var(--sp-teal)); font: 600 12.5px var(--db-font-sans, inherit); transition: background .2s; }
+.nk-limpiar:hover { background: var(--db-accent-soft, var(--sp-soft)); }
+.nk-limpiar:focus-visible { outline: 2px solid var(--db-ring, var(--sp-teal)); outline-offset: 2px; }
+.nk-limpiar svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+@media (max-width: 640px) {
+  .nk-filtros { gap: 12px 16px; padding: 12px 14px; }
+  .nk-f, .nk-acciones { flex-basis: 100%; }
+  .nk-filtros .md-menu-btn, .nk-filtros .pw-input { width: 100%; }
+  .nk-f-c > .md-menu, .nk-f-c > .pw-input { flex: 1; }
+  .nk-acciones { margin-left: 0; }
+}
+
+/* ---------- menú desplegable (mes de la mezcla, orden de la tabla) ---------- */
+.md { --md-menu-bg: #0B2D4D; }
+.md[data-theme='light'] { --md-menu-bg: #FFFFFF; }
+.md-menu { position: relative; }
+.md-menu-btn { display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px 8px 14px; border-radius: 14px; cursor: pointer;
+  border: 1px solid var(--sp-line-2); background: var(--sp-soft); color: var(--sp-ink); font: inherit; transition: border-color .2s, box-shadow .2s; }
+.md-menu-btn small { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--sp-ink-2); }
+.md-menu-btn b { font-size: 13px; font-weight: 700; }
+.md-menu-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+  color: var(--sp-ink-2); transition: transform .3s var(--sp-spring); }
+.md-menu-btn:hover, .md-menu.abierto .md-menu-btn { border-color: var(--sp-orange); box-shadow: 0 0 0 3px rgba(246, 141, 46, 0.14); }
+.md-menu.abierto .md-menu-btn svg { transform: rotate(180deg); color: var(--sp-orange); }
+.md-menu-btn:focus-visible { outline: 2px solid var(--sp-teal); outline-offset: 2px; }
+.md-menu-lista { position: absolute; z-index: 20; right: 0; top: calc(100% + 8px); min-width: 230px; max-height: 330px; overflow-y: auto;
+  margin: 0; padding: 6px; list-style: none; border-radius: 16px; border: 1px solid var(--sp-line-2); background: var(--md-menu-bg);
+  box-shadow: 0 24px 48px -16px rgba(0, 0, 0, 0.45); transform-origin: top right; max-width: calc(100vw - 16px); animation: md-menu .22s var(--sp-spring); }
+.md-menu-lista.izq { right: auto; left: 0; transform-origin: top left; }
+@keyframes md-menu { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
+.md-menu-lista li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border-radius: 10px;
+  font-size: 13px; font-weight: 600; color: var(--sp-ink); cursor: pointer; outline: none; transition: background .15s, color .15s; }
+.md-menu-lista li:hover, .md-menu-lista li:focus-visible { background: var(--sp-soft); }
+.md-menu-lista li.on { color: var(--sp-orange); background: rgba(246, 141, 46, 0.12); }
+.md-menu-lista li svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.md-menu-lista li.md-menu-grupo { padding: 10px 12px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .1em; color: var(--sp-ink-2); cursor: default; }
+.md-menu-lista li.md-menu-grupo:hover { background: none; }

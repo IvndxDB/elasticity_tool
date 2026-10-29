@@ -1,0 +1,465 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Data Bunker · Glass & Depth — visual de las pestañas de Nike y de Pricing L'Oréal
+   (Price Positioning by Sport, Price Wall · Running, Markdown y Pricing L'Oréal).
+
+   Sólo aplica dentro de .db-ui: el resto del tablero no cambia. No toca funcionamiento:
+   re-mapea las variables --sp-* / --pw-* a los tokens --db-* del sistema y aplica sus materiales:
+     glass   → contenedores de información (tarjetas, KPIs, paneles)   ·  hover: se tiñe donde está el cursor
+     relief  → lo que se toca y la opción seleccionada (botones, chips, píldora activa)
+     sunken  → SÓLO campos (tipo de cambio, USD, buscador, menús de selección)
+     track   → rieles y paneles internos (segmentados, celdas, avisos)
+   Los tokens son copia de data-bunker-ui/assets/design-system/tokens/tokens.css (no editar a mano los valores).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ───────────── Tokens del sistema (invariantes) ───────────── */
+.db-ui {
+  --db-brand-navy: #062341; --db-brand-blue: #073C5C; --db-brand-cyan: #30A7B5; --db-brand-orange: #F68D2E;
+  --db-font-display: 'Oswald', 'Arial Narrow', ui-sans-serif, system-ui, sans-serif;
+  --db-font-sans: 'Open Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --db-r-2xs: 5px; --db-r-xs: 8px; --db-r-sm: 12px; --db-r-md: 16px; --db-r-lg: 22px; --db-r-xl: 28px; --db-r-pill: 999px;
+  --db-blur-1: 14px; --db-blur-2: 22px; --db-blur-3: 32px;
+  --db-ease-out: cubic-bezier(.32, .72, 0, 1); --db-ease-spring: cubic-bezier(.34, 1.3, .5, 1);
+  --db-dur-fast: .14s; --db-dur-base: .35s; --db-dur-close: .62s; --db-dur-open: .85s;
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  .db-ui { --db-ease-spring: linear(0, 0.024, 0.084, 0.168, 0.265, 0.367, 0.467, 0.563, 0.65, 0.728, 0.796, 0.853, 0.9, 0.938, 0.968, 0.991, 1.007, 1.019, 1.026, 1.03, 1.031, 1.031, 1.03, 1.027, 1.024, 1.021, 1.018, 1.015, 1.012, 1.009, 1.007, 1.005, 1.004, 1.002, 1.001, 1, 1, 1, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 1, 1); }
+}
+
+/* ───────────── Tema claro ───────────── */
+.db-ui[data-theme='light'] {
+  color-scheme: light;
+  --db-canvas: #EDF1F6; --db-surface: #F8FAFC; --db-surface-hi: #FFFFFF;
+  --db-ink: #062341; --db-ink-2: #3D5570; --db-ink-3: #52667D; --db-ink-inverse: #FFFFFF;
+  --db-primary: #073C5C; --db-primary-hover: #062341; --db-on-primary: #FFFFFF;
+  --db-accent: #30A7B5; --db-accent-ink: #116E7A; --db-signal: #F68D2E; --db-signal-ink: #A44E06;
+  --db-pos: #1C7340; --db-neg: #B83038; --db-warn: #925600;
+  --db-pos-soft: rgba(28, 115, 64, .10); --db-neg-soft: rgba(184, 48, 56, .10); --db-warn-soft: rgba(250, 178, 25, .16);
+  --db-accent-soft: rgba(48, 167, 181, .14); --db-signal-soft: rgba(246, 141, 46, .14);
+  --db-glass-bg: rgba(255, 255, 255, .58); --db-glass-bg-strong: rgba(255, 255, 255, .80);
+  --db-glass-border: rgba(6, 35, 65, .10); --db-glass-border-strong: rgba(6, 35, 65, .14);
+  --db-glass-spec: inset 0 1px 0 rgba(255, 255, 255, .95); --db-glass-shadow: 0 24px 48px -26px rgba(6, 35, 65, .30);
+  --db-glass-sheen: linear-gradient(132deg, rgba(255, 255, 255, .5) 0%, rgba(255, 255, 255, .14) 28%, transparent 54%, rgba(48, 167, 181, .06) 100%);
+  --db-relief-bg: linear-gradient(150deg, #F6F8FB 0%, #E4EAF2 100%);
+  --db-relief-shadow: -5px -5px 14px rgba(255, 255, 255, .5), 6px 8px 18px rgba(6, 35, 65, .09);
+  --db-relief-shadow-sm: -3px -3px 7px rgba(255, 255, 255, .45), 3px 4px 10px rgba(6, 35, 65, .085);
+  --db-sunken-bg: #E3E9F1;
+  --db-sunken-shadow: inset 5px 5px 12px rgba(6, 35, 65, .12), inset -5px -5px 12px rgba(255, 255, 255, .5);
+  --db-sunken-shadow-sm: inset 2px 2px 6px rgba(6, 35, 65, .12), inset -2px -2px 6px rgba(255, 255, 255, .45);
+  --db-track-bg: rgba(6, 35, 65, .05);
+  --db-hair: rgba(6, 35, 65, .09); --db-hair-2: rgba(6, 35, 65, .16); --db-ring: #0E7C8B;
+  --db-aurora-1: rgba(48, 167, 181, .22); --db-aurora-2: rgba(7, 60, 92, .16); --db-aurora-3: rgba(246, 141, 46, .12);
+  --db-scrim: rgba(3, 23, 44, .40);
+  --db-grad: linear-gradient(96deg, #073C5C 0%, #30A7B5 70%);
+  --db-primary-glow: 0 12px 28px -12px rgba(7, 60, 92, .65);
+  --db-chart-5: #886ACF;
+}
+
+/* ───────────── Tema oscuro ───────────── */
+.db-ui[data-theme='dark'] {
+  color-scheme: dark;
+  --db-canvas: #03172C; --db-surface: #0B2644; --db-surface-hi: #0F2F52;
+  --db-ink: #EAF2FA; --db-ink-2: #B4C5D8; --db-ink-3: #8DA1B8; --db-ink-inverse: #03172C;
+  --db-primary: #30A7B5; --db-primary-hover: #45B9C6; --db-on-primary: #03172C;
+  --db-accent: #45B9C6; --db-accent-ink: #6FD0DB; --db-signal: #F68D2E; --db-signal-ink: #FFAA5C;
+  --db-pos: #3DD68C; --db-neg: #FF7A85; --db-warn: #F7B955;
+  --db-pos-soft: rgba(61, 214, 140, .14); --db-neg-soft: rgba(255, 122, 133, .14); --db-warn-soft: rgba(247, 185, 85, .14);
+  --db-accent-soft: rgba(69, 185, 198, .16); --db-signal-soft: rgba(246, 141, 46, .16);
+  --db-glass-bg: rgba(12, 44, 82, .45); --db-glass-bg-strong: rgba(16, 52, 94, .68);
+  --db-glass-border: rgba(255, 255, 255, .11); --db-glass-border-strong: rgba(255, 255, 255, .18);
+  --db-glass-spec: inset 0 1px 0 rgba(255, 255, 255, .16); --db-glass-shadow: 0 30px 60px -28px rgba(0, 6, 16, .85);
+  --db-glass-sheen: linear-gradient(132deg, rgba(255, 255, 255, .13) 0%, rgba(255, 255, 255, .03) 26%, transparent 52%, rgba(69, 185, 198, .07) 100%);
+  --db-relief-bg: linear-gradient(150deg, #123459 0%, #08203D 100%);
+  --db-relief-shadow: -6px -6px 16px rgba(90, 150, 220, .07), 8px 10px 24px rgba(0, 6, 16, .70);
+  --db-relief-shadow-sm: -3px -3px 8px rgba(90, 150, 220, .06), 4px 5px 12px rgba(0, 6, 16, .6);
+  --db-sunken-bg: #051B33;
+  --db-sunken-shadow: inset 5px 5px 12px rgba(0, 6, 16, .75), inset -5px -5px 12px rgba(90, 150, 220, .07);
+  --db-sunken-shadow-sm: inset 2px 2px 6px rgba(0, 6, 16, .7), inset -2px -2px 6px rgba(90, 150, 220, .06);
+  --db-track-bg: rgba(0, 8, 20, .32);
+  --db-hair: rgba(255, 255, 255, .08); --db-hair-2: rgba(255, 255, 255, .15); --db-ring: #6FD0DB;
+  --db-aurora-1: rgba(48, 167, 181, .26); --db-aurora-2: rgba(7, 60, 92, .85); --db-aurora-3: rgba(246, 141, 46, .10);
+  --db-scrim: rgba(0, 6, 16, .60);
+  --db-grad: linear-gradient(96deg, #8FD8E0 0%, #45B9C6 60%);
+  --db-primary-glow: 0 12px 30px -10px rgba(48, 167, 181, .55);
+  --db-chart-5: #8567CC;
+}
+
+/* ───────────── Variables de las pestañas → tokens (sin tocar su CSS) ───────────── */
+.sp.db-ui[data-theme] {
+  --sp-navy: var(--db-brand-navy); --sp-navy-2: var(--db-brand-blue);
+  --sp-teal: var(--db-accent); --sp-orange: var(--db-signal);
+  --sp-bg: var(--db-canvas); --sp-ink: var(--db-ink); --sp-ink-2: var(--db-ink-2);
+  --sp-line: var(--db-hair); --sp-line-2: var(--db-hair-2);
+  --sp-card: var(--db-glass-bg); --sp-card-shadow: var(--db-glass-spec), var(--db-glass-shadow);
+  --sp-soft: var(--db-track-bg); --sp-empty: var(--db-track-bg);
+  --sp-avg-dot: var(--db-ink); --sp-avg-glow: color-mix(in srgb, var(--db-accent) 45%, transparent);
+  --sp-sport-bg: transparent; --sp-sport-ink: var(--db-accent-ink);
+  --sp-logo-line: var(--db-hair); --sp-badge-bg: var(--db-surface);
+  --sp-ease: var(--db-ease-out); --sp-spring: var(--db-ease-spring);
+  font-family: var(--db-font-sans); font-feature-settings: normal; color: var(--db-ink);
+  box-shadow: inset 0 0 0 1px var(--db-hair);
+  /* lienzo con aurora: el vidrio necesita color detrás */
+  background:
+    radial-gradient(46vmax 46vmax at 4% -6%, var(--db-aurora-1), transparent 70%),
+    radial-gradient(40vmax 40vmax at 100% 22%, var(--db-aurora-2), transparent 70%),
+    radial-gradient(30vmax 30vmax at 45% 108%, var(--db-aurora-3), transparent 70%),
+    var(--db-canvas);
+}
+.sp.db-ui.pw[data-theme] {
+  --pw-nike: var(--nk-c1); --pw-adi: var(--nk-c2);
+  --pw-ok: var(--db-pos); --pw-warn: var(--db-warn); --pw-bad: var(--db-neg); --pw-new: var(--db-chart-5);
+  --pw-panel2: var(--db-track-bg); --pw-bal-bg: var(--db-track-bg);
+  --pw-imgbg: radial-gradient(circle at 50% 75%, color-mix(in srgb, var(--db-surface-hi) 90%, transparent), color-mix(in srgb, var(--db-surface-hi) 40%, transparent));
+  --pw-gap-bg: var(--db-signal-soft); --pw-gap-t: var(--db-signal-ink);
+  --pw-own-bg: var(--db-pos-soft); --pw-own-t: var(--db-pos);
+  --pw-under-bg: var(--db-warn-soft); --pw-under-t: var(--db-warn);
+  --pw-lead-bg: var(--db-accent-soft); --pw-lead-t: var(--db-accent-ink);
+  --pw-void: repeating-linear-gradient(45deg, transparent, transparent 5px, var(--db-track-bg) 5px, var(--db-track-bg) 10px);
+  --pw-lane: var(--db-track-bg); --pw-lane-b: var(--db-hair);
+  --pw-lbl-bg: var(--db-glass-bg-strong); --pw-pop: var(--db-surface-hi);
+}
+/* Colores por marca de la paleta categórica oficial (Nike = serie propia, slot 1) */
+.db-ui[data-theme='light'] { --nk-c1: #005B8C; --nk-c2: #F48D31; }
+.db-ui[data-theme='dark'] { --nk-c1: #0072C4; --nk-c2: #DD6B00; }
+
+/* ───────────── Tipografía: Oswald títulos y cifras, Open Sans el resto ───────────── */
+.db-ui h2, .db-ui h3, .db-ui strong, .db-ui .sp-avg, .db-ui .sp-take li > span, .db-ui .sp-heat td,
+.db-ui .pw-kpi .v, .db-ui .pw-band b, .db-ui .pw-wallhead div, .db-ui .md-lines .end, .db-ui .md-bar > div span, .db-ui .sp-sport b {
+  font-family: var(--db-font-display); font-weight: 500; letter-spacing: 0; font-variant-numeric: tabular-nums;
+}
+.db-ui .sp-head h2 { font-size: 34px; letter-spacing: .005em; }
+.db-ui .sp-head h2 span { background: var(--db-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.db-ui .sp-eyebrow { font-family: var(--db-font-display); font-weight: 500; font-size: 12px; letter-spacing: .14em; color: var(--db-accent-ink); }
+.db-ui .sp-eyebrow i { background: var(--db-accent); }
+.db-ui .sp-card h3 { font-size: 20px; }
+.db-ui .sp-svg text, .db-ui .pw-svg text, .db-ui svg text { font-family: var(--db-font-sans); }
+
+/* ───────────── Glass: tarjetas, KPIs y paneles (se tiñen donde está el cursor) ───────────── */
+.db-ui .sp-card, .db-ui .sp-kpi {
+  position: relative; isolation: isolate; border-radius: var(--db-r-lg);
+  background: var(--db-glass-bg); border: 1px solid var(--db-glass-border);
+  box-shadow: var(--db-glass-spec), var(--db-glass-shadow);
+  -webkit-backdrop-filter: blur(var(--db-blur-2)) saturate(170%); backdrop-filter: blur(var(--db-blur-2)) saturate(170%);
+  transition: border-color var(--db-dur-base) var(--db-ease-out), transform var(--db-dur-base) var(--db-ease-out);
+}
+.db-ui .sp-card::before, .db-ui .sp-kpi::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--db-glass-sheen); pointer-events: none; z-index: -1;
+}
+.db-ui .sp-card::after, .db-ui .sp-kpi::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+  background: radial-gradient(360px circle at var(--mx, 50%) var(--my, -30%), color-mix(in srgb, var(--db-accent) 20%, transparent), transparent 46%);
+  opacity: 0; transition: opacity var(--db-dur-base) var(--db-ease-out);
+}
+.db-ui .sp-card:hover::after, .db-ui .sp-kpi:hover::after { opacity: 1; }
+.db-ui .sp-card:hover, .db-ui .sp-kpi:hover { border-color: var(--db-glass-border-strong); }
+.db-ui .pw-wall { overflow: hidden; }
+
+/* KPIs: chip de ícono en relieve, cifras Oswald */
+.db-ui .sp-ic, .db-ui .md-kpi .sp-ic {
+  background: var(--db-relief-bg); border: 1px solid var(--db-hair); box-shadow: var(--db-relief-shadow-sm); border-radius: var(--db-r-md);
+}
+.db-ui .sp-ic svg { stroke: var(--db-accent-ink); }
+.db-ui .sp-ic circle { fill: var(--db-accent-ink); }
+.db-ui .sp-kpi-b small, .db-ui .pw-kpi .l { color: var(--db-ink-2); font-weight: 600; }
+.db-ui .sp-kpi-b strong { font-size: 40px; letter-spacing: 0; }
+.db-ui .md-kpi .sp-kpi-b strong { font-size: 34px; }
+.db-ui .sp-kpi-side.base { border-left-color: var(--db-hair); }
+.db-ui .sp-delta { border-radius: var(--db-r-pill); }
+.db-ui .sp-delta.up { color: var(--db-signal-ink); background: var(--db-signal-soft); }
+.db-ui .sp-delta.down { color: var(--db-accent-ink); background: var(--db-accent-soft); }
+.db-ui .sp-spark polyline, .db-ui .md-spark.orange polyline { stroke: var(--db-accent); filter: none; }
+.db-ui .sp-spark rect, .db-ui .md-spark rect { fill: color-mix(in srgb, var(--db-accent) 40%, transparent); }
+.db-ui .sp-spark rect.last { fill: var(--db-accent); }
+
+/* ───────────── Rieles (track) con la opción elegida en relieve ───────────── */
+.db-ui .sp-pills {
+  background: var(--db-track-bg); border: 1px solid var(--db-hair); box-shadow: none; border-radius: var(--db-r-md);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.db-ui .sp-pill-ind {
+  background: var(--db-relief-bg); border: 1px solid var(--db-hair); box-shadow: var(--db-relief-shadow-sm); border-radius: var(--db-r-sm);
+}
+.db-ui .sp-pills button { color: var(--db-ink-2); border-radius: var(--db-r-sm); transition: color var(--db-dur-base) var(--db-ease-out), transform var(--db-dur-fast) var(--db-ease-out); }
+.db-ui .sp-pills button:hover { color: var(--db-ink); }
+.db-ui .sp-pills button.on { color: var(--db-accent-ink); }
+.db-ui .sp-pills button:active { transform: scale(.96); }
+.db-ui .sp-pills button:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 2px; }
+
+/* Interruptor claro / oscuro: cuerpo hundido (control de formulario) y perilla en relieve; la animación "sprint" no cambia */
+.db-ui .sp-switch { background: var(--db-sunken-bg); border: 1px solid transparent; box-shadow: var(--db-sunken-shadow-sm); }
+.db-ui .sp-switch.on { background: var(--db-sunken-bg); border-color: transparent; }
+.db-ui .sp-switch-knob { background: var(--db-relief-bg); color: var(--db-accent-ink); box-shadow: var(--db-relief-shadow-sm); border: 1px solid var(--db-hair); }
+.db-ui .sp-switch.on .sp-switch-knob { background: var(--db-relief-bg); color: var(--db-signal-ink); }
+.db-ui .sp-switch:hover { border-color: transparent; box-shadow: var(--db-sunken-shadow-sm), 0 0 0 3px var(--db-accent-soft); }
+.db-ui .sp-switch:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 3px; }
+
+/* ───────────── Sunken: sólo campos donde se escribe o se elige un valor ───────────── */
+.db-ui .sp-fx { background: var(--db-track-bg); border: 1px solid var(--db-hair); color: var(--db-ink-2); border-radius: var(--db-r-md); }
+.db-ui .sp-fx.falta { border-color: var(--db-signal); box-shadow: 0 0 0 3px var(--db-signal-soft); }
+.db-ui .sp-fx input, .db-ui .pw-input, .db-ui .pw-cmpq {
+  background: var(--db-sunken-bg); border: 1px solid transparent; box-shadow: var(--db-sunken-shadow-sm);
+  color: var(--db-ink); border-radius: var(--db-r-sm);
+}
+.db-ui .sp-fx input:focus, .db-ui .pw-input:focus, .db-ui .pw-cmpq:focus { outline: none; box-shadow: var(--db-sunken-shadow-sm); }
+.db-ui .sp-fx input:focus-visible, .db-ui .pw-input:focus-visible, .db-ui .pw-cmpq:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 2px; }
+.db-ui .pw-cmpq::placeholder, .db-ui .pw-input::placeholder, .db-ui .sp-fx input::placeholder { color: var(--db-ink-3); opacity: 1; }
+.db-ui .pw-rango { background: var(--db-track-bg); border: 1px solid var(--db-hair); color: var(--db-ink-2); border-radius: var(--db-r-md); }
+.db-ui .pw-rango input[type=range] { accent-color: var(--db-accent); }
+
+/* Menús de selección (Markdown): el disparador es un campo (sunken) y la lista flota en glass fuerte */
+.db-ui .md-menu-btn {
+  background: var(--db-sunken-bg); border: 1px solid transparent; box-shadow: var(--db-sunken-shadow-sm); border-radius: var(--db-r-md); min-height: 40px;
+}
+.db-ui .md-menu-btn small { color: var(--db-ink-3); }
+.db-ui .md-menu-btn:hover, .db-ui .md-menu.abierto .md-menu-btn { border-color: transparent; box-shadow: var(--db-sunken-shadow-sm), 0 0 0 3px var(--db-accent-soft); }
+.db-ui .md-menu.abierto .md-menu-btn svg { color: var(--db-accent-ink); }
+.db-ui .md-menu-btn:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 2px; }
+.db-ui .md-menu-lista, .db-ui .pw-dd, .db-ui .pw-zoom {
+  background: var(--db-glass-bg-strong); border: 1px solid var(--db-glass-border-strong); border-radius: var(--db-r-md);
+  -webkit-backdrop-filter: blur(var(--db-blur-3)) saturate(185%); backdrop-filter: blur(var(--db-blur-3)) saturate(185%);
+  box-shadow: var(--db-glass-spec), var(--db-glass-shadow);
+}
+.db-ui .md-menu-lista { animation: md-menu var(--db-dur-base) var(--db-ease-spring); }
+.db-ui .md-menu-lista li { color: var(--db-ink); border-radius: var(--db-r-xs); }
+.db-ui .md-menu-lista li:hover, .db-ui .md-menu-lista li:focus-visible { background: var(--db-track-bg); }
+.db-ui .md-menu-lista li.on { color: var(--db-accent-ink); background: var(--db-accent-soft); }
+.db-ui .md-menu-lista li.md-menu-grupo { color: var(--db-ink-3); font-family: var(--db-font-display); font-weight: 500; }
+
+/* ───────────── Relief: botones que se tocan · sólido: la acción principal ───────────── */
+.db-ui .pw-btn {
+  background: var(--db-relief-bg); border: 1px solid var(--db-hair); box-shadow: var(--db-relief-shadow-sm);
+  color: var(--db-ink); border-radius: var(--db-r-sm); min-height: 36px;
+  transition: transform var(--db-dur-fast) var(--db-ease-out), border-color var(--db-dur-base) var(--db-ease-out);
+}
+.db-ui .pw-btn:hover { border-color: color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.db-ui .pw-btn:active { transform: scale(.96); }
+.db-ui .pw-btn:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 2px; }
+.db-ui .pw-btn.pri { background: var(--db-primary); color: var(--db-on-primary); border-color: transparent; box-shadow: var(--db-primary-glow); }
+.db-ui .pw-btn.pri:hover { background: var(--db-primary-hover); }
+.db-ui .pw-btn.new { background: var(--db-relief-bg); color: var(--db-chart-5); border-color: color-mix(in srgb, var(--db-chart-5) 45%, transparent); }
+.db-ui .pw-btn.dng { background: var(--db-neg-soft); color: var(--db-neg); border-color: color-mix(in srgb, var(--db-neg) 45%, transparent); box-shadow: none; }
+.db-ui .pw-btn.azul { color: var(--db-accent-ink); border-color: color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.db-ui .pw-kchip { border-radius: var(--db-r-xs); }
+.db-ui .pw-kchip.on { background: var(--db-relief-bg); box-shadow: var(--db-relief-shadow-sm); border-color: currentColor; }
+
+/* ───────────── Track: paneles internos, celdas y avisos ───────────── */
+.db-ui .sp-avg, .db-ui .sp-take li, .db-ui .pw-opp, .db-ui .pw-why div, .db-ui .pw-impact, .db-ui .pw-complist, .db-ui .pw-band {
+  background: var(--db-track-bg); border-color: var(--db-hair); box-shadow: none;
+}
+.db-ui .sp-avg { border-radius: var(--db-r-sm); }
+.db-ui .sp-take li { border-radius: var(--db-r-md); }
+.db-ui .sp-take li > span { background: var(--db-relief-bg); border: 1px solid var(--db-hair); box-shadow: var(--db-relief-shadow-sm); color: var(--db-accent-ink); border-radius: var(--db-r-sm); }
+.db-ui .sp-bulb { background: var(--db-signal); box-shadow: 0 0 0 4px var(--db-signal-soft); }
+.db-ui .pw-opp { border-left: 3px solid var(--db-signal); border-radius: var(--db-r-xs); }
+.db-ui .pw-opp.def { border-left-color: var(--db-pos); } .db-ui .pw-opp.und { border-left-color: var(--db-warn); }
+
+/* Heatmap e íconos de deporte */
+.db-ui .sp-heat td { border-radius: var(--db-r-xs); font-size: 16px; }
+.db-ui .sp-heat td.na { background: var(--db-track-bg); color: var(--db-ink-3); }
+.db-ui .sp-sport { color: var(--db-accent-ink); }
+.db-ui .sp-sport small { color: var(--db-ink-2); }
+.db-ui .sp-sport:hover { color: var(--db-ink); }
+.db-ui .sp-sport.all b { color: var(--db-accent-ink); }
+.db-ui .sp-scale i { background: linear-gradient(var(--db-signal), var(--db-brand-blue) 50%, var(--db-accent)); }
+
+/* Tooltips de logos: glass fuerte con tinta normal (no naranja) */
+.db-ui .sp-logo[data-tip]::after {
+  background: var(--db-glass-bg-strong); color: var(--db-ink); border: 1px solid var(--db-glass-border-strong);
+  -webkit-backdrop-filter: blur(var(--db-blur-1)); backdrop-filter: blur(var(--db-blur-1)); box-shadow: var(--db-glass-shadow); font-family: var(--db-font-sans);
+}
+.db-ui .sp-logo[data-tip]::before { border-top-color: var(--db-glass-border-strong); }
+.db-ui .sp-logo[data-tip]:hover, .db-ui .sp-logo[data-tip]:focus-visible { box-shadow: 0 0 0 2px var(--db-accent), 0 8px 18px -6px color-mix(in srgb, var(--db-accent) 50%, transparent); }
+
+/* ───────────── Tablas: filas directas sobre la tarjeta ───────────── */
+.db-ui .md-tbl th, .db-ui .pw-tbl th { color: var(--db-ink-3); font-family: var(--db-font-sans); }
+.db-ui .md-tbl th.act { color: var(--db-accent-ink); }
+.db-ui .md-tbl td, .db-ui .pw-tbl td { border-color: var(--db-hair); }
+.db-ui .md-tbl tbody tr:hover, .db-ui .pw-tbl.queue tr.pw-q:hover, .db-ui .pw-it:hover { background: var(--db-accent-soft); }
+.db-ui .md-badge { color: var(--db-signal-ink); background: var(--db-signal-soft); }
+.db-ui .md-sale { color: var(--db-signal-ink); }
+.db-ui .md-ahorro { color: var(--db-accent-ink); }
+.db-ui .md-foto { border-radius: var(--db-r-sm); }
+
+/* ───────────── Price Wall: tarjetas de producto, celdas y modal ───────────── */
+.db-ui .pw-card { background: var(--db-glass-bg-strong); border: 1px solid var(--db-glass-border-strong); box-shadow: var(--db-relief-shadow-sm); border-radius: var(--db-r-sm); }
+.db-ui .pw-card:hover { border-color: color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.db-ui .pw-card.pw-sel { outline: 2px solid var(--db-ring); box-shadow: 0 0 0 4px var(--db-accent-soft); }
+.db-ui .pw-card.comp { outline-color: var(--db-warn); }
+.db-ui .pw-disc { background: var(--db-neg); color: var(--db-ink-inverse); }
+.db-ui .pw-pr .off { color: var(--db-neg); }
+.db-ui .pw-note, .db-ui .pw-addb { color: var(--db-chart-5); }
+.db-ui .pw-addb { border-color: color-mix(in srgb, var(--db-chart-5) 55%, transparent); }
+.db-ui .pw-addb:hover { background: color-mix(in srgb, var(--db-chart-5) 14%, transparent); }
+.db-ui .pw-flag { color: var(--db-warn); }
+.db-ui .pw-row.gapN .pw-cell.nk { background: repeating-linear-gradient(45deg, transparent, transparent 8px, var(--db-signal-soft) 8px, var(--db-signal-soft) 16px); }
+.db-ui .pw-row.gapA .pw-cell.adi { background: repeating-linear-gradient(45deg, transparent, transparent 8px, var(--db-pos-soft) 8px, var(--db-pos-soft) 16px); }
+.db-ui .pw-row.focus { background: var(--db-accent-soft); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.db-ui .pw-ghost { border-color: color-mix(in srgb, var(--db-signal) 60%, transparent); background: var(--db-signal-soft); color: var(--db-signal-ink); border-radius: var(--db-r-sm); }
+.db-ui .mc { border-radius: var(--db-r-xs); }
+.db-ui .mc.gap { border-color: color-mix(in srgb, var(--db-signal) 50%, transparent); }
+.db-ui .mc.own { border-color: color-mix(in srgb, var(--db-pos) 40%, transparent); }
+.db-ui .mc.under { border-color: color-mix(in srgb, var(--db-warn) 40%, transparent); }
+.db-ui .mc.focus { outline-color: var(--db-ring); }
+.db-ui .pw-tagA.auto { background: var(--db-pos-soft); color: var(--db-pos); border-color: color-mix(in srgb, var(--db-pos) 40%, transparent); }
+.db-ui .pw-tagA.man { background: var(--db-warn-soft); color: var(--db-warn); border-color: color-mix(in srgb, var(--db-warn) 40%, transparent); }
+.db-ui .pw-verdict.innov { background: color-mix(in srgb, var(--db-chart-5) 15%, transparent); color: var(--db-chart-5); }
+.db-ui .pw-verdict.ok { background: var(--db-pos-soft); color: var(--db-pos); }
+.db-ui .pw-verdict.warn { background: var(--db-warn-soft); color: var(--db-warn); }
+.db-ui .pw-dd .opt.cur { background: var(--db-accent-soft); }
+.db-ui .pw-dd .opt.pw-reset { color: var(--db-warn); }
+.db-ui .pw-ov { background: var(--db-scrim); -webkit-backdrop-filter: blur(var(--db-blur-1)); backdrop-filter: blur(var(--db-blur-1)); }
+.db-ui .pw-modal {
+  background: var(--db-glass-bg-strong); border: 1px solid var(--db-glass-border-strong); border-radius: var(--db-r-lg);
+  -webkit-backdrop-filter: blur(var(--db-blur-3)) saturate(185%); backdrop-filter: blur(var(--db-blur-3)) saturate(185%);
+  box-shadow: var(--db-glass-spec), var(--db-glass-shadow);
+  animation: nk-abrir var(--db-dur-base) var(--db-ease-spring);
+}
+@keyframes nk-abrir { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+.db-ui .pw-modal .mh h3 span { color: var(--db-chart-5); }
+
+/* Sin transparencia: el glass se vuelve superficie sólida */
+@media (prefers-reduced-transparency: reduce) {
+  .db-ui .sp-card, .db-ui .sp-kpi, .db-ui .md-menu-lista, .db-ui .pw-dd, .db-ui .pw-zoom, .db-ui .pw-modal {
+    background: var(--db-surface); -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .db-ui .pw-modal, .db-ui .md-menu-lista { animation: none; }
+}
+
+/* Celular: el mapa de white space se desplaza dentro de su tarjeta, no la página completa */
+.db-ui .pw-ws > *, .db-ui .pw-main > *, .db-ui .pw-grid2 > * { min-width: 0; }
+@media (max-width: 760px) { .db-ui .pw-mx { overflow-x: auto; max-width: 100%; } }
+
+/* ───────────── Barras de scroll: delgadas, redondeadas y del color del tema (ventanas, menús, tablas, listas) ───────────── */
+.db-ui, .db-ui * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--db-accent) 55%, transparent) transparent; }
+.db-ui ::-webkit-scrollbar { width: 10px; height: 10px; }
+.db-ui ::-webkit-scrollbar-track { background: transparent; margin: 16px 0; }
+.db-ui ::-webkit-scrollbar-thumb {
+  border-radius: var(--db-r-pill); border: 3px solid transparent; background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--db-accent) 45%, transparent);
+}
+.db-ui ::-webkit-scrollbar-thumb:hover { background-color: var(--db-accent); }
+.db-ui ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.db-ui ::-webkit-scrollbar-corner { background: transparent; }
+/* la ventana deja aire a la derecha para que la barra no toque el borde redondeado */
+.db-ui .md-modal-in { scrollbar-gutter: stable; }
+/* mini gráficas de las tarjetas con el mismo color que su ventana */
+.db-ui .md-spark.orange rect, .db-ui .md-spark.teal rect { fill: var(--db-accent); opacity: .75; }
+.db-ui .md-spark.orange polyline, .db-ui .md-spark.teal polyline { stroke: var(--db-accent); }
+
+/* ───────────── Sin desenfoque de fondo en lo que va directo sobre el lienzo ─────────────
+   Chrome procesa backdrop-filter por bloques y, al redibujar (cambiar filtros, tema o pestaña), a veces deja una
+   línea horizontal dentro de las tarjetas. Sobre el lienzo (un degradado suave) el desenfoque no se nota, así que
+   se quita aquí; se conserva en lo que flota sobre otro contenido (menús, ventanas de detalle, modal, tooltips). */
+.db-ui .sp-card, .db-ui .sp-kpi, .db-ui .nk-filtros, .db-ui .sp-pills {
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Pricing L'Oréal (.lp) con el mismo visual: re-mapea --lp-* a los tokens y aplica los materiales.
+   Selectores .sp.db-ui.lp para ganarle a loreal.css sin tocarlo. Las animaciones (espuma, tarjetas que
+   se voltean) no cambian. Los colores de gráficas vienen de PALETA (calculo.js) vía --lpc-*.
+   ═══════════════════════════════════════════════════════════════════════ */
+.sp.db-ui.lp[data-theme] {
+  --lp-own: var(--lpc-own); --lp-c1: var(--lpc-comp0); --lp-teal: var(--db-accent-ink); --lp-red: var(--db-neg);
+  --lp-glass: var(--db-glass-bg); --lp-glass-line: var(--db-glass-border); --lp-pop: var(--db-surface-hi); --lp-hero: var(--db-accent-soft);
+  font-family: var(--db-font-sans);
+}
+.sp.db-ui.lp .sp-head h2 { font-weight: 500; }
+
+/* Filtros: panel unificado, fijo arriba al hacer scroll (flota sobre el contenido → glass fuerte con desenfoque) */
+.sp.db-ui.lp > .nk-filtros {
+  position: sticky; top: 8px; z-index: 40;
+  background: var(--db-glass-bg-strong); border-color: var(--db-glass-border-strong);
+  -webkit-backdrop-filter: blur(var(--db-blur-3)) saturate(185%); backdrop-filter: blur(var(--db-blur-3)) saturate(185%);
+}
+.sp.db-ui.lp .nk-filtros .lp-chips { padding: 0; min-height: 38px; background: transparent; border: 0; }
+.sp.db-ui.lp .lp-chips-l:empty { display: none; }
+.sp.db-ui.lp .lp-chips-add input {
+  border: 1px solid transparent; border-radius: var(--db-r-sm); background: var(--db-sunken-bg); box-shadow: var(--db-sunken-shadow-sm);
+  min-height: 38px; padding: 6px 12px; color: var(--db-ink);
+}
+.sp.db-ui.lp .lp-chips-add input:focus { outline: none; border-color: transparent; }
+.sp.db-ui.lp .lp-chips-add input:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 2px; }
+.sp.db-ui.lp .lp-chips-add input::placeholder { color: var(--db-ink-3); }
+.sp.db-ui.lp .lp-chip-v { background: var(--db-relief-bg); border: 1px solid var(--db-hair); box-shadow: var(--db-relief-shadow-sm); }
+.sp.db-ui.lp .lp-chips-clr { color: var(--db-accent-ink); }
+.sp.db-ui.lp .lp-dd {
+  background: var(--db-glass-bg-strong); border: 1px solid var(--db-glass-border-strong); border-radius: var(--db-r-md);
+  -webkit-backdrop-filter: blur(var(--db-blur-3)) saturate(185%); backdrop-filter: blur(var(--db-blur-3)) saturate(185%); box-shadow: var(--db-glass-shadow);
+}
+.sp.db-ui.lp .lp-dd div { border-color: var(--db-hair); color: var(--db-ink); }
+.sp.db-ui.lp .lp-dd div:hover { background: var(--db-accent-soft); }
+/* interruptor de marketplaces: cuerpo hundido, perilla en relieve, encendido en cian */
+.sp.db-ui.lp .lp-sw { background: transparent; border: 0; padding: 0 4px; min-height: 38px; color: var(--db-ink-2); }
+.sp.db-ui.lp .lp-sw.on { color: var(--db-ink); }
+.sp.db-ui.lp .lp-sw-t { background: var(--db-sunken-bg); box-shadow: var(--db-sunken-shadow-sm); width: 38px; height: 22px; }
+.sp.db-ui.lp .lp-sw-t i { background: var(--db-relief-bg); box-shadow: var(--db-relief-shadow-sm); border: 1px solid var(--db-hair); width: 16px; height: 16px; }
+.sp.db-ui.lp .lp-sw.on .lp-sw-t { background: var(--db-accent); }
+.sp.db-ui.lp .lp-sw:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 2px; border-radius: 10px; }
+
+/* Tarjetas de la guía: glass que se tiñe donde está el cursor (mismo que las tarjetas de Nike) */
+.sp.db-ui.lp .lp-card {
+  isolation: isolate; border-radius: var(--db-r-lg); background: var(--db-glass-bg); border: 1px solid var(--db-glass-border);
+  box-shadow: var(--db-glass-spec), var(--db-glass-shadow); -webkit-backdrop-filter: none; backdrop-filter: none;
+  transition: border-color var(--db-dur-base) var(--db-ease-out);
+}
+.sp.db-ui.lp .lp-card::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--db-glass-sheen); pointer-events: none; z-index: -1;
+}
+.sp.db-ui.lp .lp-card::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+  background: radial-gradient(360px circle at var(--mx, 50%) var(--my, -30%), color-mix(in srgb, var(--db-accent) 20%, transparent), transparent 46%);
+  opacity: 0; transition: opacity var(--db-dur-base) var(--db-ease-out);
+}
+.sp.db-ui.lp .lp-card:hover::after { opacity: 1; }
+.sp.db-ui.lp .lp-card:hover { border-color: var(--db-glass-border-strong); }
+.sp.db-ui.lp .lp-card h3 { font-family: var(--db-font-display); font-weight: 500; }
+.sp.db-ui.lp .lp-eyebrow { color: var(--db-accent-ink); font-family: var(--db-font-display); font-weight: 500; }
+.sp.db-ui.lp .lp-eyebrow::before { background: var(--db-accent); }
+.sp.db-ui.lp .lp-cifra b, .sp.db-ui.lp .lp-heroc b, .sp.db-ui.lp .lp-minic b { font-family: var(--db-font-display); font-weight: 500; font-variant-numeric: tabular-nums; }
+.sp.db-ui.lp .lp-delta.up { color: var(--db-signal-ink); background: var(--db-signal-soft); }
+.sp.db-ui.lp .lp-delta.down { color: var(--db-accent-ink); background: var(--db-accent-soft); }
+/* acciones de la tarjeta: descargar (relieve) y Gráfica / Tabla (riel con la opción elegida en relieve) */
+.sp.db-ui.lp .lp-ico { background: var(--db-relief-bg); border: 1px solid var(--db-hair); box-shadow: var(--db-relief-shadow-sm); color: var(--db-ink-2); transition: transform var(--db-dur-fast); }
+.sp.db-ui.lp .lp-ico:hover { color: var(--db-accent-ink); border-color: color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.sp.db-ui.lp .lp-ico:active { transform: scale(.96); }
+.sp.db-ui.lp .lp-gt { background: var(--db-track-bg); border: 1px solid var(--db-hair); }
+.sp.db-ui.lp .lp-gt button { color: var(--db-ink-2); border: 1px solid transparent; }
+.sp.db-ui.lp .lp-gt button.on { background: var(--db-relief-bg); color: var(--db-accent-ink); box-shadow: var(--db-relief-shadow-sm); border-color: var(--db-hair); }
+.sp.db-ui.lp .lp-gt button:focus-visible, .sp.db-ui.lp .lp-ico:focus-visible, .sp.db-ui.lp .lp-btn:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 2px; }
+.sp.db-ui.lp .lp-btn {
+  background: var(--db-relief-bg); border: 1px solid var(--db-hair); box-shadow: var(--db-relief-shadow-sm); color: var(--db-ink); border-radius: var(--db-r-sm);
+  transition: transform var(--db-dur-fast), border-color var(--db-dur-base);
+}
+.sp.db-ui.lp .lp-btn:hover { border-color: color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.sp.db-ui.lp .lp-btn:active { transform: scale(.96); }
+
+/* KPIs (tarjetas que se voltean) y alertas por cadena: caras en glass; la destacada con acento cian */
+.sp.db-ui.lp .lp-heroc, .sp.db-ui.lp .lp-minic {
+  background: var(--db-glass-bg); border: 1px solid var(--db-glass-border); box-shadow: var(--db-glass-spec), var(--db-glass-shadow); border-radius: var(--db-r-lg);
+}
+.sp.db-ui.lp .lp-heroc.acc { background: var(--db-accent-soft); border-color: color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.sp.db-ui.lp .lp-heroc.acc b, .sp.db-ui.lp .lp-minic.acc b { color: var(--db-accent-ink); }
+.sp.db-ui.lp .lp-minic.warn b { color: var(--db-neg); }
+.sp.db-ui.lp .lp-heroc small, .sp.db-ui.lp .lp-minic small { color: var(--db-ink-2); }
+.sp.db-ui.lp .lp-feed-i { background: var(--db-track-bg); border-color: var(--db-hair); border-radius: var(--db-r-md); }
+.sp.db-ui.lp .lp-flip:hover .lp-flip-f, .sp.db-ui.lp .lp-flip:hover .lp-flip-b { border-color: color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.sp.db-ui.lp .lp-flip:focus-visible .lp-flip-f, .sp.db-ui.lp .lp-flip:focus-visible .lp-flip-b { outline-color: var(--db-ring); }
+
+/* Tablas, celdas y estados */
+.sp.db-ui.lp .lp-tbl th { font-family: var(--db-font-sans); font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--db-ink-3); border-color: var(--db-hair-2); }
+.sp.db-ui.lp .lp-tbl td { border-color: var(--db-hair); }
+.sp.db-ui.lp .lp-tbl tbody tr:hover { background: var(--db-accent-soft); }
+.sp.db-ui.lp .lp-adh { background: var(--db-track-bg); border: 1px solid var(--db-hair); }
+.sp.db-ui.lp .lp-res.ok { color: var(--db-pos); }
+.sp.db-ui.lp .lp-chip { color: var(--db-neg); background: var(--db-neg-soft); border-color: color-mix(in srgb, var(--db-neg) 40%, transparent); }
+.sp.db-ui.lp .lp-idx { background: var(--db-track-bg); }
+.sp.db-ui.lp .lp-idx.hi { color: var(--db-signal-ink); background: var(--db-signal-soft); }
+.sp.db-ui.lp .lp-idx.lo { color: var(--db-accent-ink); background: var(--db-accent-soft); }
+.sp.db-ui.lp .lp-heat td { border-radius: var(--db-r-xs); }
+.sp.db-ui.lp .lp-heat th.propio, .sp.db-ui.lp .lp-heat tr.propio th { color: var(--db-accent-ink); }
+.sp.db-ui.lp .lp-heat td.pico { box-shadow: inset 0 0 0 2px var(--db-accent); }
+.sp.db-ui.lp .lp-ladder-r:not(.head):not(.axis):hover { background: var(--db-accent-soft); }
+/* barra de adherencia: el % en una píldora propia, legible sobre cualquier parte de la barra */
+.sp.db-ui.lp .lp-adh span { inset: auto; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 0 6px; border-radius: 6px; line-height: 14px; background: var(--db-surface-hi); color: var(--db-ink); }

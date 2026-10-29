@@ -1,0 +1,163 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Price Elasticity Engine — adaptación al look de Pricing L'Oréal / Tiendas Bara.
+   El resto del CSS de esta carpeta es copia sin cambios del proyecto de referencia; aquí sólo van las piezas
+   propias de esta app, siempre sobre los tokens --db-* de db-ui.css (claro y oscuro).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Página: mismo marco que los módulos legacy del portal (.shell) */
+html, body { margin: 0; }
+body { background: #ffffff; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+.el-shell { padding: 12px 14px 24px; }
+.el-shell > .sp { min-height: calc(100vh - 36px); }
+
+/* Tokens propios: líneas de estado, banners y paleta de gráficas (PALETA de Pricing L'Oréal) */
+.db-ui[data-theme='light'] {
+  --el-pos-line: rgba(28, 115, 64, .30); --el-neg-line: rgba(184, 48, 56, .30);
+  --el-warn-line: rgba(146, 86, 0, .30); --el-info-line: rgba(17, 110, 122, .30);
+  --el-hero: linear-gradient(135deg, #062341 0%, #073C5C 100%);
+  --el-hero-pos: linear-gradient(135deg, #145A32 0%, #1C7340 100%);
+  --elc-own: #005B8C; --elc-1: #F48D31; --elc-2: #1CA8B7; --elc-3: #9E7C00; --elc-5: #886ACF; --elc-6: #6079D3;
+}
+.db-ui[data-theme='dark'] {
+  --el-pos-line: rgba(61, 214, 140, .32); --el-neg-line: rgba(255, 122, 133, .32);
+  --el-warn-line: rgba(247, 185, 85, .32); --el-info-line: rgba(111, 208, 219, .32);
+  --el-hero: linear-gradient(135deg, #0F2F52 0%, #123F66 100%);
+  --el-hero-pos: linear-gradient(135deg, #0F4A2C 0%, #17663B 100%);
+  --elc-own: #0072C4; --elc-1: #DD6B00; --elc-2: #00A4B7; --elc-3: #9B7900; --elc-5: #8567CC; --elc-6: #5D76D0;
+}
+
+/* Banners navy (detalle de producto, precio sugerido, crear regla): siempre oscuros, así que dentro usan la
+   variante oscura de los tokens de estado y de la acción principal para conservar el contraste en ambos temas */
+.db-ui .el-hero {
+  --db-pos: #3DD68C; --db-neg: #FF7A85; --db-warn: #F7B955; --db-accent: #45B9C6; --db-accent-ink: #6FD0DB;
+  --db-warn-soft: rgba(247, 185, 85, .16); --db-surface-hi: #FFFFFF;
+  --db-primary: #30A7B5; --db-primary-hover: #45B9C6; --db-on-primary: #03172C;
+  box-shadow: var(--db-glass-spec), var(--db-glass-shadow); border: 1px solid rgba(255, 255, 255, .10);
+}
+
+/* Encabezado */
+.el-shell .sp-head p { margin: 6px 0 0; font-size: 12.5px; color: var(--db-ink-2); }
+.el-shell .sp-head p b { color: var(--db-ink); font-weight: 600; }
+.el-live { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: var(--db-r-pill); font-size: 12px; font-weight: 600;
+  background: var(--db-track-bg); border: 1px solid var(--db-hair); color: var(--db-ink-2); }
+.el-live b { font-family: var(--db-font-display); font-weight: 500; font-size: 14px; color: var(--db-ink); font-variant-numeric: tabular-nums; }
+.el-live i { width: 7px; height: 7px; border-radius: 50%; background: var(--db-pos); box-shadow: 0 0 0 3px var(--db-pos-soft); }
+.el-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.el-tabs .sp-pills button { padding: 9px 16px; font-size: 13px; }
+.el-count { font-size: 12.5px; color: var(--db-ink-2); }
+.el-count b { font-family: var(--db-font-display); font-weight: 500; font-size: 15px; color: var(--db-accent-ink); }
+
+/* Glass: tarjetas de contenido (igual que .lp-card) */
+.sp.db-ui .el-card {
+  position: relative; isolation: isolate; border-radius: var(--db-r-lg); background: var(--db-glass-bg); border: 1px solid var(--db-glass-border);
+  box-shadow: var(--db-glass-spec), var(--db-glass-shadow); transition: border-color var(--db-dur-base) var(--db-ease-out);
+}
+.sp.db-ui .el-card::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--db-glass-sheen); pointer-events: none; z-index: -1; }
+.sp.db-ui .el-card::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+  background: radial-gradient(360px circle at var(--mx, 50%) var(--my, -30%), color-mix(in srgb, var(--db-accent) 20%, transparent), transparent 46%);
+  opacity: 0; transition: opacity var(--db-dur-base) var(--db-ease-out);
+}
+.sp.db-ui .el-card:hover::after { opacity: 1; }
+.sp.db-ui .el-card:hover { border-color: var(--db-glass-border-strong); }
+
+/* KPIs (mismo material que .lp-heroc / .lp-minic); .acc = destacado en cian, .pos/.neg/.warn = estado */
+.sp.db-ui .el-kpi {
+  display: flex; flex-direction: column; gap: 3px; padding: 14px 16px; border-radius: var(--db-r-lg); min-width: 0;
+  background: var(--db-glass-bg); border: 1px solid var(--db-glass-border); box-shadow: var(--db-glass-spec), var(--db-glass-shadow);
+}
+.sp.db-ui .el-kpi small { font-family: var(--db-font-display); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--db-ink-2); }
+.sp.db-ui .el-kpi b { font-family: var(--db-font-display); font-size: 26px; font-weight: 500; line-height: 1.15; color: var(--db-ink); font-variant-numeric: tabular-nums; }
+.sp.db-ui .el-kpi em { font-style: normal; font-size: 11.5px; color: var(--db-ink-2); }
+.sp.db-ui .el-kpi.acc { background: var(--db-accent-soft); border-color: color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.sp.db-ui .el-kpi.acc b { color: var(--db-accent-ink); }
+.sp.db-ui .el-kpi.pos b { color: var(--db-pos); }
+.sp.db-ui .el-kpi.neg b { color: var(--db-neg); }
+.sp.db-ui .el-kpi.warn b { color: var(--db-warn); }
+.sp.db-ui .el-kpi.pos { border-color: var(--el-pos-line); }
+.sp.db-ui .el-kpi.neg { border-color: var(--el-neg-line); }
+.sp.db-ui .el-kpi.warn { border-color: var(--el-warn-line); }
+
+/* Opción seleccionable (tarjetas de escenario): glass; la elegida en relieve con acento */
+.sp.db-ui .el-opt {
+  padding: 14px 16px; border-radius: var(--db-r-lg); cursor: pointer; color: var(--db-ink); text-align: left; font: inherit;
+  background: var(--db-glass-bg); border: 1px solid var(--db-glass-border); box-shadow: var(--db-glass-spec), var(--db-glass-shadow);
+  transition: transform var(--db-dur-fast), border-color var(--db-dur-base) var(--db-ease-out);
+}
+.sp.db-ui .el-opt:hover { border-color: color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.sp.db-ui .el-opt:active { transform: scale(.98); }
+.sp.db-ui .el-opt:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 2px; }
+.sp.db-ui .el-opt.on { background: var(--db-accent-soft); border-color: color-mix(in srgb, var(--db-accent) 55%, transparent); box-shadow: var(--db-relief-shadow-sm); }
+.sp.db-ui .el-opt.on .el-opt-t { color: var(--db-accent-ink); }
+
+/* Relieve: botones secundarios (igual que .lp-btn) */
+.sp.db-ui .el-btn {
+  font: inherit; background: var(--db-relief-bg); border: 1px solid var(--db-hair); box-shadow: var(--db-relief-shadow-sm); color: var(--db-ink);
+  border-radius: var(--db-r-sm); transition: transform var(--db-dur-fast), border-color var(--db-dur-base);
+}
+.sp.db-ui .el-btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--db-accent) 45%, transparent); }
+.sp.db-ui .el-btn:active:not(:disabled) { transform: scale(.96); }
+.sp.db-ui .el-btn:disabled { opacity: .45; box-shadow: none; }
+/* Acción principal (igual que .pw-btn.pri) */
+.sp.db-ui .el-btn-pri {
+  font: inherit; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: var(--db-r-sm);
+  background: var(--db-primary); color: var(--db-on-primary); box-shadow: var(--db-primary-glow); transition: transform var(--db-dur-fast), background var(--db-dur-base);
+}
+.sp.db-ui .el-btn-pri:hover:not(:disabled) { background: var(--db-primary-hover); }
+.sp.db-ui .el-btn-pri:active:not(:disabled) { transform: scale(.96); }
+.sp.db-ui .el-btn-pri:disabled { opacity: .45; box-shadow: none; cursor: not-allowed; }
+.sp.db-ui .el-btn:focus-visible, .sp.db-ui .el-btn-pri:focus-visible, .sp.db-ui label.el-btn-pri:focus-within { outline: 2px solid var(--db-ring); outline-offset: 2px; }
+
+/* Hundido: sólo campos de formulario */
+.sp.db-ui .el-field {
+  font: inherit; color: var(--db-ink); background: var(--db-sunken-bg); border: 1px solid transparent; box-shadow: var(--db-sunken-shadow-sm);
+}
+.sp.db-ui .el-field:focus { outline: none; }
+.sp.db-ui .el-field:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 2px; }
+.sp.db-ui .el-field::placeholder { color: var(--db-ink-3); opacity: 1; }
+.sp.db-ui select.el-field option { background: var(--db-surface-hi); color: var(--db-ink); }
+
+/* Encabezado de sección: eyebrow con raya (como .lp-eyebrow) + título Oswald */
+.sp.db-ui .el-sec { display: flex; align-items: center; gap: 12px; margin: 26px 0 12px; }
+.sp.db-ui .el-sec h3 { margin: 0; font-family: var(--db-font-display); font-weight: 500; font-size: 20px; line-height: 1.2; color: var(--db-ink); }
+.sp.db-ui .el-sec::before { content: ''; width: 20px; height: 2px; border-radius: 2px; background: var(--db-accent); flex: none; }
+.sp.db-ui .el-sec::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--db-hair-2), transparent); }
+
+/* Tablas: encabezados y celdas con la tipografía de .lp-tbl */
+.sp.db-ui .el-card table { color: var(--db-ink); }
+.sp.db-ui .el-card thead tr, .sp.db-ui .el-modal thead tr { background: var(--db-track-bg) !important; }
+.sp.db-ui .el-card th, .sp.db-ui .el-modal th { font-family: var(--db-font-sans); letter-spacing: .06em; color: var(--db-ink-3) !important; border-color: var(--db-hair-2); }
+.sp.db-ui .el-card tbody tr:hover, .sp.db-ui .el-modal tbody tr:hover { background: var(--db-accent-soft) !important; }
+.sp.db-ui td, .sp.db-ui th { font-variant-numeric: tabular-nums; }
+
+/* Capas flotantes: modales y tooltip (glass fuerte sobre velo) */
+.sp.db-ui .el-modal, .el-pop {
+  background: var(--db-surface); border: 1px solid var(--db-glass-border-strong); border-radius: var(--db-r-xl);
+  box-shadow: var(--db-glass-spec), var(--db-glass-shadow); color: var(--db-ink);
+}
+.el-tip { background: var(--db-glass-bg-strong); border: 1px solid var(--db-glass-border-strong); border-radius: var(--db-r-sm); padding: 10px 14px; font-size: 11.5px;
+  box-shadow: var(--db-glass-spec), var(--db-glass-shadow); color: var(--db-ink); -webkit-backdrop-filter: blur(var(--db-blur-1)); backdrop-filter: blur(var(--db-blur-1)); }
+.el-tip-t { font-weight: 700; margin-bottom: 4px; }
+
+/* Insignias de estado (texto + color, nunca sólo color) */
+.el-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: var(--db-r-pill); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.el-badge.green { color: var(--db-pos); background: var(--db-pos-soft); }
+.el-badge.red { color: var(--db-neg); background: var(--db-neg-soft); }
+.el-badge.blue { color: var(--db-accent-ink); background: var(--db-accent-soft); }
+.el-badge.amber { color: var(--db-warn); background: var(--db-warn-soft); }
+
+/* Recharts: ejes, retícula, leyenda y cursor con tinta del tema (la propiedad CSS gana al atributo) */
+.sp.db-ui .recharts-cartesian-axis-tick-value, .sp.db-ui .recharts-text { fill: var(--db-ink-2); }
+.sp.db-ui .recharts-cartesian-axis-line, .sp.db-ui .recharts-cartesian-axis-tick-line { stroke: var(--db-hair-2); }
+.sp.db-ui .recharts-cartesian-grid line { stroke: var(--db-hair); }
+.sp.db-ui .recharts-legend-item-text { color: var(--db-ink-2) !important; }
+.sp.db-ui .recharts-tooltip-cursor { fill: var(--db-track-bg); stroke: var(--db-hair-2); }
+.sp.db-ui .recharts-label { fill: var(--db-ink-2); }
+
+/* Código en línea dentro de notas */
+.sp.db-ui code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: .95em; color: var(--db-ink); }
+
+@media (max-width: 640px) {
+  .el-shell { padding: 8px 8px 16px; }
+  .el-tabs .sp-pills button { padding: 8px 12px; font-size: 12.5px; }
+}

@@ -5,16 +5,18 @@ import {
   Legend, ComposedChart, Area, ScatterChart, Scatter, Cell, LabelList,
 } from "recharts";
 import { analyzeElasticity, suggestPrice, sanitizeElasticity } from "./elasticity";
+import { Buscador, CURVA, Filtros, Pills, Sel, Sprint, TemaBoton, brillo, useTemaAnimado } from "./ui/shell";
 
-/* ── Brand Colors (matching tablero_diseño) ── */
+/* ── Colores: tokens --db-* del sistema Glass & Depth (claro/oscuro en ui/db-ui.css) ── */
 const C = {
-  navy: "#0B2545", blue: "#134074", mid: "#1B6FB5", light: "#4DA8DA",
-  accent: "#F59E0B", green: "#10B981", red: "#EF4444",
-  bg: "#F8FAFC", card: "#FFFFFF", border: "#E2E8F0",
-  text: "#0F172A", sub: "#64748B", muted: "#94A3B8",
+  navy: "var(--db-ink)", blue: "var(--db-primary)", mid: "var(--db-accent-ink)", light: "var(--db-accent)",
+  accent: "var(--db-warn)", green: "var(--db-pos)", red: "var(--db-neg)",
+  bg: "var(--db-canvas)", card: "var(--db-surface-hi)", border: "var(--db-hair-2)",
+  text: "var(--db-ink)", sub: "var(--db-ink-2)", muted: "var(--db-ink-3)",
 };
 
-const METHOD_COLORS = { ols: "#134074", loglog: "#7C3AED", arc: "#F59E0B", sku_fe: "#BE185D", segment: "#0E7490" };
+// Paleta categórica de las gráficas (misma que Pricing L'Oréal), como variables CSS para que cambie con el tema
+const METHOD_COLORS = { ols: "var(--elc-own)", loglog: "var(--elc-5)", arc: "var(--elc-1)", sku_fe: "var(--elc-2)", segment: "var(--elc-6)" };
 
 /* ── Cliente: ?cliente=bodesa carga /bodesa/*.json; sin parámetro, los datos de FESA en /public ── */
 const CLIENT = (new URLSearchParams(window.location.search).get("cliente") || "").replace(/[^a-z0-9_-]/gi, "");
@@ -86,8 +88,8 @@ function precomputedAnalysis(p, segments) {
       mae: null,
       mape: null,
       confidence: est.ownWeight >= 0.5
-        ? { level: "alta", reco: "auto_approve", label: "Alta — elasticidad propia", color: "#10B981" }
-        : { level: "media", reco: "review", label: "Media — propia + depto.", color: "#F59E0B" },
+        ? { level: "alta", reco: "auto_approve", label: "Alta — elasticidad propia", color: "var(--db-pos)" }
+        : { level: "media", reco: "review", label: "Media — propia + depto.", color: "var(--db-warn)" },
       description: `Log-log con efectos fijos de SKU y de mes por departamento (${est.n} meses). Pendiente propia ${est.raw.elasticity} (±${est.raw.se}) combinada con ${est.prior ? `la del depto. (${est.prior})` : "un prior de 0"}: ${Math.round(est.ownWeight * 100)}% datos propios. Error ±${est.se}.`,
     });
   }
@@ -100,7 +102,7 @@ function precomputedAnalysis(p, segments) {
       rmse: null,
       mae: null,
       mape: null,
-      confidence: { level: "media", reco: "review", label: "Media — elasticidad del depto.", color: "#F59E0B" },
+      confidence: { level: "media", reco: "review", label: "Media — elasticidad del depto.", color: "var(--db-warn)" },
       description: `Elasticidad común de ${p.category}: ${seg.n} SKUs, ${seg.obs} meses-SKU, con efectos fijos de SKU y mes (error ±${seg.se}, t=${seg.t}).`,
     });
   }
@@ -131,16 +133,16 @@ function priceChangeNote(pctChange, elasticity, currentPrice, marginPct, competi
 // Devuelve: { level: "alta"|"media"|"baja"|"muy_baja", reco: "auto_approve"|"review"|"reject", label, color }
 function confidenceFromMape(mape, elasticity) {
   if (mape === null || mape === undefined || !isFinite(mape)) {
-    return { level: "muy_baja", reco: "reject", label: "Sin datos — revisar", color: "#EF4444" };
+    return { level: "muy_baja", reco: "reject", label: "Sin datos — revisar", color: "var(--db-neg)" };
   }
   // Elasticidad positiva o exactamente 0 = sin señal
   if (elasticity === null || elasticity === undefined || elasticity >= 0) {
-    return { level: "baja", reco: "reject", label: "Sin señal — mantener", color: "#EF4444" };
+    return { level: "baja", reco: "reject", label: "Sin señal — mantener", color: "var(--db-neg)" };
   }
-  if (mape < 20) return { level: "alta", reco: "auto_approve", label: "Alta — auto aprobar", color: "#10B981" };
-  if (mape < 40) return { level: "media", reco: "auto_approve", label: "Media — auto aprobar", color: "#10B981" };
-  if (mape < 60) return { level: "baja", reco: "review", label: "Baja — revisar", color: "#F59E0B" };
-  return { level: "muy_baja", reco: "reject", label: "Muy baja — no aplicar", color: "#EF4444" };
+  if (mape < 20) return { level: "alta", reco: "auto_approve", label: "Alta — auto aprobar", color: "var(--db-pos)" };
+  if (mape < 40) return { level: "media", reco: "auto_approve", label: "Media — auto aprobar", color: "var(--db-pos)" };
+  if (mape < 60) return { level: "baja", reco: "review", label: "Baja — revisar", color: "var(--db-warn)" };
+  return { level: "muy_baja", reco: "reject", label: "Muy baja — no aplicar", color: "var(--db-neg)" };
 }
 
 // Predicción de unidades usando elasticidad (constant-elasticity): Q_new = Q_old * (P_new/P_old)^E.
@@ -298,36 +300,27 @@ function abcClassify(rows) {
 }
 
 /* ── Reusable Components ── */
+// KPI con el material de .lp-heroc / .lp-minic (Pricing L'Oréal); accent = destacado en cian
 function StatCard({ label, value, sub, accent }) {
   return (
-    <div style={{
-      background: accent ? `linear-gradient(135deg,${C.navy},${C.blue})` : C.card,
-      border: accent ? "none" : `1px solid ${C.border}`,
-      borderRadius: 10, padding: "13px 15px", flex: 1, minWidth: 120,
-      boxShadow: accent ? "0 4px 16px rgba(11,37,69,0.2)" : "0 1px 3px rgba(0,0,0,0.04)",
-    }}>
-      <div style={{ fontSize: 10, color: accent ? "rgba(255,255,255,0.7)" : C.sub, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: accent ? "#fff" : C.navy, marginTop: 3 }}>{value}</div>
-      {sub && <div style={{ fontSize: 10, color: accent ? "rgba(255,255,255,0.6)" : C.muted, marginTop: 2 }}>{sub}</div>}
+    <div className={`el-kpi${accent ? " acc" : ""}`} style={{ flex: 1, minWidth: 120 }}>
+      <small>{label}</small>
+      <b>{value}</b>
+      {sub && <em>{sub}</em>}
     </div>
   );
 }
 
-function SectionHead({ children, ic }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, marginTop: 24 }}>
-      <span style={{ fontSize: 16 }}>{ic}</span>
-      <h3 style={{ fontSize: 14, fontWeight: 700, color: C.navy, margin: 0 }}>{children}</h3>
-      <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg,${C.border},transparent)` }} />
-    </div>
-  );
+// Encabezado de sección: raya de acento + título Oswald (como .lp-eyebrow / .lp-card h3)
+function SectionHead({ children }) {
+  return <div className="el-sec"><h3>{children}</h3></div>;
 }
 
 function ChartTip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", fontSize: 11, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
-      <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
+    <div className="el-tip">
+      <div className="el-tip-t">{label}</div>
       {payload.map((e, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: e.color, display: "inline-block" }} />
@@ -343,11 +336,7 @@ function ChartTip({ active, payload, label }) {
 
 function Badge({ color, children }) {
   return (
-    <span style={{
-      background: color === "green" ? "rgba(16,185,129,0.12)" : color === "red" ? "rgba(239,68,68,0.12)" : color === "blue" ? "rgba(19,64,116,0.1)" : "rgba(245,158,11,0.12)",
-      color: color === "green" ? C.green : color === "red" ? C.red : color === "blue" ? C.blue : C.accent,
-      padding: "3px 10px", borderRadius: 16, fontSize: 10, fontWeight: 600, whiteSpace: "nowrap",
-    }}>
+    <span className={`el-badge ${["green", "red", "blue"].includes(color) ? color : "amber"}`}>
       {children}
     </span>
   );
@@ -412,8 +401,8 @@ function SortHeader({ label, sortKey, sortConfig, setSortConfig, align = "center
 }
 
 function MethodBadge({ method }) {
-  const bg = method === "ols" ? "rgba(19,64,116,0.1)" : method === "loglog" ? "rgba(124,58,237,0.1)" : "rgba(245,158,11,0.1)";
   const fg = METHOD_COLORS[method] || C.sub;
+  const bg = `color-mix(in srgb, ${fg} 14%, transparent)`;
   const label = method === "ols" ? "OLS Lineal" : method === "loglog" ? "Log-Log" : method === "segment" ? "Panel depto." : method === "sku_fe" ? "SKU s/estacionalidad" : "Arco Mid-Point";
   return <span style={{ background: bg, color: fg, padding: "3px 10px", borderRadius: 16, fontSize: 10, fontWeight: 600 }}>{label}</span>;
 }
@@ -425,10 +414,10 @@ class ErrBoundary extends Component {
   render() {
     if (this.state.err) {
       return (
-        <div style={{ padding: 20, background: "#FEF2F2", border: "2px solid #EF4444", borderRadius: 10, color: "#991B1B", fontFamily: "monospace", fontSize: 12 }}>
+        <div style={{ padding: 20, background: "var(--db-neg-soft)", border: "2px solid var(--db-neg)", borderRadius: 10, color: "var(--db-neg)", fontFamily: "monospace", fontSize: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Error en {this.props.name || "componente"}:</div>
           <div style={{ whiteSpace: "pre-wrap" }}>{String(this.state.err?.stack || this.state.err)}</div>
-          <button onClick={() => this.setState({ err: null })} style={{ marginTop: 10, padding: "6px 12px", cursor: "pointer" }}>Reintentar</button>
+          <button onClick={() => this.setState({ err: null })} className="el-btn" style={{ marginTop: 10, padding: "6px 12px", cursor: "pointer" }}>Reintentar</button>
         </div>
       );
     }
@@ -438,11 +427,7 @@ class ErrBoundary extends Component {
 
 function Spinner() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "60vh", gap: 16 }}>
-      <div style={{ width: 48, height: 48, border: `4px solid ${C.border}`, borderTop: `4px solid ${C.blue}`, borderRadius: "50%", animation: "spin 1s linear infinite" }} />
-      <div style={{ color: C.sub, fontSize: 13 }}>Cargando datos...</div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
+    <div className="sp-msg" aria-busy="true"><span className="sp-spin" />Cargando datos…</div>
   );
 }
 
@@ -470,6 +455,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
     try { return localStorage.getItem("elasticity_user") || "Diego Sosa"; } catch { return "Diego Sosa"; }
   });
+  const { tema, sprint, cambiarTema } = useTemaAnimado();
   const [scenario, setScenario] = useState("balanced"); // balanced | aggressive | conservative | keep_margin | hold_price
   const [familyRules, setFamilyRules] = useState({}); // { sku: "Nombre de familia" }
   // Reglas de negocio específicas por familia (sobreescriben las globales cuando se activan)
@@ -860,79 +846,60 @@ export default function App() {
     reader.readAsText(file);
   }, [data, overrides]);
 
-  if (loading) return <Spinner />;
-  if (!data) return <div style={{ padding: 40, textAlign: "center", color: C.red }}>Error cargando datos</div>;
+  // Marco visual de Pricing L'Oréal / Tiendas Bara: sección .sp con tema claro/oscuro y tarjetas glass
+  const marco = (contenido) => (
+    <div className="el-shell">
+      <div className="sp lp ba db-ui" data-theme={tema} onPointerMove={brillo}>
+        {sprint && <Sprint y={sprint.y} />}
+        {contenido}
+      </div>
+    </div>
+  );
+
+  if (loading) return marco(<Spinner />);
+  if (!data) return marco(<div className="sp-msg" role="alert" style={{ color: C.red }}>Error cargando datos</div>);
 
   const tabs = [
-    { id: "portfolio", label: "Sugerencia de Precios", ic: "💰" },
-    { id: "clusters", label: "Clusters", ic: "🧬" },
-    { id: "admin", label: "Administración", ic: "⚙️" },
-    { id: "glossary", label: "Glosario", ic: "📚" },
+    { id: "portfolio", label: "Sugerencia de Precios" },
+    { id: "clusters", label: "Clusters" },
+    { id: "admin", label: "Administración" },
+    { id: "glossary", label: "Glosario" },
   ];
+  const opcionesFiltro = (todas, lista) => [{ v: "all", t: todas }, ...lista.map(x => ({ v: x, t: x }))];
 
-  return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "system-ui, -apple-system, sans-serif" }}>
-
+  return marco(
+    <>
       {/* HEADER */}
-      <header style={{ background: `linear-gradient(135deg,${C.navy},${C.blue})`, padding: "0 20px", boxShadow: "0 2px 12px rgba(11,37,69,0.15)" }}>
-        <div style={{ maxWidth: 1400, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 8, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 800, color: "#fff" }}>DB</div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Data Bunker</div>
-              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.6)" }}>www.data-bunker.ai</div>
-            </div>
+      <header className="sp-head">
+        <div className="ba-marca">
+          <span className="ba-logo" aria-hidden="true"><svg viewBox="0 0 24 24">{CURVA}</svg></span>
+          <div>
+            <span className="sp-eyebrow"><i />Pricing tool · Data Bunker</span>
+            <h2>Price Elasticity <span>Engine</span></h2>
+            <p>Análisis de Elasticidad de Precios{data.client ? <> · <b>{data.client}</b></> : ""}</p>
           </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", letterSpacing: 1 }}>PRICE ELASTICITY ENGINE</div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>Análisis de Elasticidad de Precios{data.client ? ` · ${data.client}` : ""}</div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ padding: "5px 12px", borderRadius: 7, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", fontSize: 11, color: "rgba(255,255,255,0.8)" }}>
-              <span style={{ color: C.accent, fontWeight: 700 }}>{data.products.length.toLocaleString()}</span> SKUs
-            </div>
-            <div style={{ padding: "5px 10px", borderRadius: 7, background: "rgba(16,185,129,0.2)", border: "1px solid rgba(16,185,129,0.3)", fontSize: 10, color: "#6EE7B7", fontWeight: 600 }}>● LIVE</div>
-          </div>
+        </div>
+        <div className="sp-head-r">
+          <span className="el-live"><i aria-hidden="true" /><b>{data.products.length.toLocaleString("es-MX")}</b> SKUs · En vivo</span>
+          <TemaBoton tema={tema} onClick={cambiarTema} />
         </div>
       </header>
 
-      <div style={{ maxWidth: 1400, margin: "0 auto", padding: "0 20px" }}>
+      <div>
 
         {/* TABS */}
-        <div style={{ display: "flex", gap: 2, margin: "14px 0", background: "#EFF3F8", borderRadius: 10, padding: 3 }}>
-          {tabs.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              flex: 1, padding: "9px 8px", borderRadius: 8, border: "none", cursor: "pointer", minWidth: 120,
-              background: tab === t.id ? C.card : "transparent",
-              color: tab === t.id ? C.navy : C.sub,
-              fontSize: 12, fontWeight: 600, outline: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-              boxShadow: tab === t.id ? "0 2px 6px rgba(0,0,0,0.06)" : "none",
-            }}>
-              <span>{t.ic}</span> {t.label}
-            </button>
-          ))}
+        <div className="el-tabs" style={{ marginBottom: 16 }}>
+          <Pills label="Secciones" value={tab} onChange={setTab} options={tabs.map(t => ({ v: t.id, t: t.label }))} />
         </div>
 
         {/* FILTERS */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
-          <input
-            type="text" placeholder="Buscar SKU, EAN, nombre, brand..."
-            value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-            style={{ flex: "1 1 200px", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, outline: "none", minWidth: 180 }}
-          />
-          <select value={filterDept} onChange={e => changeDept(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 11, color: C.text, outline: "none" }}>
-            <option value="all">Todos Departamentos</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <select value={filterCat} onChange={e => changeCat(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 11, color: C.text, outline: "none" }}>
-            <option value="all">Todas Categorias</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select value={filterClass} onChange={e => setFilterClass(e.target.value)} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 11, color: C.text, outline: "none" }}>
-            <option value="all">Todas Clasificaciones</option>
-            {classifications.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <div style={{ fontSize: 11, color: C.sub }}>{filtered.length.toLocaleString()} productos</div>
+        <div style={{ marginBottom: 16 }}>
+          <Filtros acciones={<span className="el-count"><b>{filtered.length.toLocaleString("es-MX")}</b> productos</span>}>
+            <Buscador etiqueta="Buscar" value={searchTerm} onChange={setSearchTerm} placeholder="SKU, EAN, nombre, brand…" aria="Buscar SKU, EAN, nombre o brand" />
+            <Sel label="Departamento" value={filterDept} onChange={changeDept} options={opcionesFiltro("Todos los departamentos", departments)} />
+            <Sel label="Categoría" value={filterCat} onChange={changeCat} options={opcionesFiltro("Todas las categorías", categories)} />
+            <Sel label="Clasificación" value={filterClass} onChange={setFilterClass} options={opcionesFiltro("Todas las clasificaciones", classifications)} />
+          </Filtros>
         </div>
 
         {/* ═══ PORTFOLIO TAB ═══ */}
@@ -987,7 +954,7 @@ export default function App() {
             <div>
               {/* Selector de escenario (antes en el tab "Simulador") */}
               <SectionHead ic="🎯">Escenario de Precios</SectionHead>
-              <div style={{ background: "#EEF2FF", border: `1px solid #C7D2FE`, borderLeft: `4px solid ${C.blue}`, borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 11, lineHeight: 1.6, color: C.text }}>
+              <div style={{ background: "var(--db-accent-soft)", border: `1px solid var(--el-info-line)`, borderLeft: `4px solid ${C.blue}`, borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 11, lineHeight: 1.6, color: C.text }}>
                 <strong style={{ color: C.navy }}>💡</strong> Cada escenario aplica un conjunto distinto de reglas globales sobre los mismos modelos de elasticidad. Las reglas por familia siempre tienen prioridad. El escenario elegido se refleja de inmediato en las sugerencias de abajo.
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 22 }}>
@@ -997,20 +964,16 @@ export default function App() {
                   const summary = scenarioComparison.find(c => c.key === key);
                   const deltaPct = summary && summary.totalCurrent > 0 ? ((summary.totalProjected - summary.totalCurrent) / summary.totalCurrent) * 100 : 0;
                   return (
-                    <div key={key} onClick={() => {
+                    <div key={key} role="button" tabIndex={0} aria-pressed={isActive} className={`el-opt${isActive ? " on" : ""}`}
+                      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } }}
+                      onClick={() => {
                       setScenario(key);
                       logAudit({ action: "SCENARIO_CHANGE", detail: `Escenario: ${sc.label}`, before: scenario, after: key });
-                    }} style={{
-                      padding: 14, borderRadius: 10, cursor: "pointer",
-                      background: isActive ? `linear-gradient(135deg,${C.navy},${C.blue})` : C.card,
-                      color: isActive ? "#fff" : C.text,
-                      border: isActive ? "none" : `1px solid ${C.border}`,
-                      boxShadow: isActive ? "0 4px 16px rgba(11,37,69,0.25)" : "0 1px 3px rgba(0,0,0,0.04)",
                     }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{sc.label}</div>
-                      <div style={{ fontSize: 10, color: isActive ? "rgba(255,255,255,0.75)" : C.sub, lineHeight: 1.5, marginBottom: 8 }}>{sc.desc}</div>
-                      <div style={{ fontSize: 10, color: isActive ? "rgba(255,255,255,0.6)" : C.muted }}>
-                        Proyección: <strong style={{ color: isActive ? "#BBF7D0" : (deltaPct >= 0 ? C.green : C.red) }}>
+                      <div className="el-opt-t" style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{sc.label}</div>
+                      <div style={{ fontSize: 10, color: C.sub, lineHeight: 1.5, marginBottom: 8 }}>{sc.desc}</div>
+                      <div style={{ fontSize: 10, color: C.muted }}>
+                        Proyección: <strong style={{ color: deltaPct >= 0 ? C.green : C.red }}>
                           {deltaPct > 0 ? "+" : ""}{deltaPct.toFixed(2)}%
                         </strong>
                         {" · ↑"}{summary?.up ?? 0} ↓{summary?.down ?? 0} ={summary?.noChange ?? 0}
@@ -1023,12 +986,12 @@ export default function App() {
               <SectionHead ic="💰">Sugerencia de Precios</SectionHead>
 
               {/* Nota sobre la metodología del optimizador */}
-              <div style={{ background: "#F0FDF4", border: `1px solid #86EFAC`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 11, lineHeight: 1.6, color: C.text }}>
+              <div style={{ background: "var(--db-pos-soft)", border: `1px solid var(--el-pos-line)`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 11, lineHeight: 1.6, color: C.text }}>
                 <div style={{ fontWeight: 700, color: C.navy, marginBottom: 4 }}>⚙️ Cómo trabaja el optimizador</div>
                 El optimizador busca numéricamente dentro del rango ±30% el precio que maximiza
-                <code style={{ background: "#DCFCE7", padding: "1px 6px", borderRadius: 4, margin: "0 4px" }}>P·Q(P)</code>
+                <code style={{ background: "var(--db-pos-soft)", padding: "1px 6px", borderRadius: 4, margin: "0 4px" }}>P·Q(P)</code>
                 bajo
-                <code style={{ background: "#DCFCE7", padding: "1px 6px", borderRadius: 4, margin: "0 4px" }}>Q = Q₀·(P/P₀)^E</code>,
+                <code style={{ background: "var(--db-pos-soft)", padding: "1px 6px", borderRadius: 4, margin: "0 4px" }}>Q = Q₀·(P/P₀)^E</code>,
                 garantizando que el ingreso proyectado sea siempre ≥ el actual. Elasticidades con <strong>E ≥ 0 (Giffen/atípica)</strong> se tratan como <em>sin señal</em> → mantener precio.
                 El volumen proyectado se acota a <strong>±5×</strong> el actual para evitar proyecciones infinitas en outliers.
               </div>
@@ -1047,45 +1010,45 @@ export default function App() {
                 const autoOk = byConf.alta + byConf.media;
                 return (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 14 }}>
-                    <div style={{ background: "rgba(16,185,129,0.08)", border: `1px solid #86EFAC`, borderRadius: 10, padding: 12 }}>
+                    <div style={{ background: "var(--db-pos-soft)", border: `1px solid var(--el-pos-line)`, borderRadius: 10, padding: 12 }}>
                       <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>✓ Confianza Alta</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: C.green }}>{byConf.alta}</div>
                       <div style={{ fontSize: 9, color: C.muted }}>MAPE &lt; 20%</div>
                     </div>
-                    <div style={{ background: "rgba(16,185,129,0.05)", border: `1px solid #86EFAC66`, borderRadius: 10, padding: 12 }}>
+                    <div style={{ background: "var(--db-pos-soft)", border: `1px solid var(--el-pos-line)`, borderRadius: 10, padding: 12 }}>
                       <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>✓ Confianza Media</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: C.green, opacity: 0.85 }}>{byConf.media}</div>
                       <div style={{ fontSize: 9, color: C.muted }}>MAPE 20-40%</div>
                     </div>
-                    <div style={{ background: "rgba(245,158,11,0.08)", border: `1px solid #FCD34D`, borderRadius: 10, padding: 12 }}>
+                    <div style={{ background: "var(--db-warn-soft)", border: `1px solid var(--el-warn-line)`, borderRadius: 10, padding: 12 }}>
                       <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>⚠ Revisar</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: C.accent }}>{byConf.baja}</div>
                       <div style={{ fontSize: 9, color: C.muted }}>MAPE 40-60%</div>
                     </div>
-                    <div style={{ background: "rgba(239,68,68,0.08)", border: `1px solid #FCA5A5`, borderRadius: 10, padding: 12 }}>
+                    <div style={{ background: "var(--db-neg-soft)", border: `1px solid #FCA5A5`, borderRadius: 10, padding: 12 }}>
                       <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>✗ No Aplicar</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: C.red }}>{byConf.muy_baja}</div>
                       <div style={{ fontSize: 9, color: C.muted }}>MAPE &gt; 60% o sin señal</div>
                     </div>
-                    <div style={{ background: "linear-gradient(135deg,#134074,#1B6FB5)", color: "#fff", borderRadius: 10, padding: 12 }}>
-                      <div style={{ fontSize: 9, color: "rgba(255,255,255,0.8)", textTransform: "uppercase", fontWeight: 700 }}>🤖 Auto-aplicables</div>
-                      <div style={{ fontSize: 20, fontWeight: 800 }}>{autoOk}</div>
-                      <div style={{ fontSize: 9, color: "rgba(255,255,255,0.7)" }}>{withSuggestion.length > 0 ? ((autoOk / withSuggestion.length) * 100).toFixed(0) : 0}% del portafolio</div>
+                    <div className="el-kpi acc" style={{ padding: 12 }}>
+                      <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>🤖 Auto-aplicables</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: "var(--db-accent-ink)" }}>{autoOk}</div>
+                      <div style={{ fontSize: 9, color: C.muted }}>{withSuggestion.length > 0 ? ((autoOk / withSuggestion.length) * 100).toFixed(0) : 0}% del portafolio</div>
                     </div>
                   </div>
                 );
               })()}
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 14 }}>
-                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+                <div className="el-card" style={{ padding: 14 }}>
                   <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 600 }}>Venta Total Actual (último mes)</div>
                   <div style={{ fontSize: 20, fontWeight: 800, color: C.blue, marginTop: 4 }}>${totalSalesCurrent.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</div>
                   <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Precio × unidades del último mes</div>
                 </div>
-                <div style={{ background: "linear-gradient(135deg,#059669,#10B981)", color: "#fff", borderRadius: 10, padding: 14 }}>
-                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.7)", textTransform: "uppercase", fontWeight: 600 }}>Venta Proyectada (c/ todos los sugeridos)</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>${totalSalesSuggested.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</div>
-                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.8)", marginTop: 2 }}>
+                <div className="el-kpi pos" style={{ padding: 14 }}>
+                  <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 600 }}>Venta Proyectada (c/ todos los sugeridos)</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: C.green, marginTop: 4 }}>${totalSalesSuggested.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</div>
+                  <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>
                     Δ {(((totalSalesSuggested - totalSalesCurrent) / Math.max(totalSalesCurrent, 1)) * 100).toFixed(2)}% vs actual
                   </div>
                 </div>
@@ -1099,11 +1062,11 @@ export default function App() {
               </div>
 
               {/* Upload + acciones */}
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <div className="el-card" style={{ padding: 12, marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <div style={{ fontSize: 11, color: C.sub, marginRight: 8 }}>
                   <strong style={{ color: C.navy }}>📤 Cargar CSV (UPC + precio)</strong> para sobrescribir el precio sugerido de productos específicos:
                 </div>
-                <label style={{ padding: "7px 12px", background: `linear-gradient(135deg,${C.navy},${C.blue})`, color: "#fff", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                <label className="el-btn-pri" style={{ padding: "7px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
                   Subir CSV
                   <input type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={(e) => handlePortfolioUpload(e.target.files?.[0])} />
                 </label>
@@ -1113,20 +1076,17 @@ export default function App() {
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a"); a.href = url; a.download = "plantilla_upc_precio.csv"; a.click();
                   URL.revokeObjectURL(url);
-                }} style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.card, fontSize: 11, color: C.sub, cursor: "pointer" }}>
+                }} className="el-btn" style={{ padding: "7px 12px", fontSize: 11, color: C.sub, cursor: "pointer" }}>
                   Plantilla
                 </button>
                 {Object.keys(overrides).length > 0 && (
-                  <button onClick={() => { setOverrides({}); setUploadInfo(null); }} style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.card, fontSize: 11, color: C.red, cursor: "pointer" }}>
+                  <button onClick={() => { setOverrides({}); setUploadInfo(null); }} className="el-btn" style={{ padding: "7px 12px", fontSize: 11, color: C.red, cursor: "pointer" }}>
                     Limpiar overrides ({Object.keys(overrides).length})
                   </button>
                 )}
                 <div style={{ flex: 1 }} />
-                <button onClick={downloadPortfolioCSV} style={{
-                  padding: "7px 14px", borderRadius: 6, border: "none",
-                  background: "linear-gradient(135deg,#059669,#10B981)", color: "#fff",
-                  fontSize: 11, fontWeight: 700, cursor: "pointer",
-                }}>Descargar CSV</button>
+                <button onClick={downloadPortfolioCSV} className="el-btn-pri" style={{ padding: "7px 14px",   
+                  fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Descargar CSV</button>
                 <button onClick={() => {
                   // Auto-aprobar SOLO los productos con confianza Alta/Media (MAPE < 40% y señal válida)
                   // El resto (Baja/Muy baja) queda rechazado automáticamente (usa precio actual)
@@ -1141,8 +1101,8 @@ export default function App() {
                     action: "BULK_AUTO_DECIDE",
                     detail: `Auto-decisión masiva por confianza: ${approved} aprobados (MAPE<40%), ${rejected} rechazados (MAPE>60% o sin señal)`,
                   });
-                }} style={{
-                  padding: "7px 12px", borderRadius: 6, border: "none", background: `linear-gradient(135deg,${C.green},#059669)`, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 6px rgba(16,185,129,0.25)",
+                }} className="el-btn-pri" style={{
+                  padding: "7px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer",
                 }}>🤖 Auto-decidir por confianza</button>
                 <button onClick={() => {
                   const all = {};
@@ -1150,28 +1110,26 @@ export default function App() {
                   setApprovals(all);
                   logAudit({ action: "BULK_APPROVE_ALL", detail: `Aprobar todos: ${Object.keys(all).length} SKUs` });
                 }} style={{
-                  padding: "7px 12px", borderRadius: 6, border: `1px solid ${C.green}`, background: "rgba(16,185,129,0.08)", color: C.green, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                  padding: "7px 12px", borderRadius: 6, border: `1px solid ${C.green}`, background: "var(--db-pos-soft)", color: C.green, fontSize: 11, fontWeight: 600, cursor: "pointer",
                 }}>✓ Aprobar todos</button>
                 <button onClick={() => {
                   const count = Object.keys(approvals).length;
                   setApprovals({});
                   logAudit({ action: "BULK_CLEAR", detail: `Limpiar ${count} decisiones` });
-                }} style={{
-                  padding: "7px 12px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.card, color: C.sub, fontSize: 11, fontWeight: 600, cursor: "pointer",
-                }}>Limpiar decisiones</button>
+                }} className="el-btn" style={{ padding: "7px 12px", color: C.sub, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Limpiar decisiones</button>
               </div>
 
-              {uploadError && <div style={{ marginBottom: 10, padding: 10, background: "rgba(239,68,68,0.1)", color: C.red, borderRadius: 8, fontSize: 11 }}>{uploadError}</div>}
+              {uploadError && <div style={{ marginBottom: 10, padding: 10, background: "var(--db-neg-soft)", color: C.red, borderRadius: 8, fontSize: 11 }}>{uploadError}</div>}
               {uploadInfo && (
-                <div style={{ marginBottom: 10, padding: 10, background: "rgba(19,64,116,0.06)", borderRadius: 8, fontSize: 11, color: C.text }}>
+                <div style={{ marginBottom: 10, padding: 10, background: "var(--db-accent-soft)", borderRadius: 8, fontSize: 11, color: C.text }}>
                   📥 Upload: <strong>{uploadInfo.matched}</strong> productos con precio manual aplicado · {uploadInfo.notFound} UPCs no encontrados · {uploadInfo.invalid} filas inválidas
                 </div>
               )}
 
-              <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, overflowX: "auto" }}>
+              <div className="el-card" style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 1700, tableLayout: "fixed" }}>
                   <thead>
-                    <tr style={{ background: "#F8FAFC", borderBottom: `2px solid ${C.border}` }}>
+                    <tr style={{ background: "var(--db-track-bg)", borderBottom: `2px solid ${C.border}` }}>
                       <SortHeader label="Img" widthKey="img" widths={portfolioWidths} setWidths={setPortfolioWidths} />
                       <SortHeader label="SKU" sortKey="sku" sortConfig={portfolioSort} setSortConfig={setPortfolioSort} widthKey="sku" widths={portfolioWidths} setWidths={setPortfolioWidths} align="left" />
                       <SortHeader label="UPC" sortKey="upc" sortConfig={portfolioSort} setSortConfig={setPortfolioSort} widthKey="upc" widths={portfolioWidths} setWidths={setPortfolioWidths} align="left" />
@@ -1205,9 +1163,9 @@ export default function App() {
                       const clust = clusterInfo.map[r.sku];
                       const abcColor = { A: C.green, B: C.blue, C: C.accent, D: C.red };
                       return (
-                        <tr key={r.sku} style={{ borderBottom: "1px solid #F1F5F9", background: decision === "approved" ? "rgba(16,185,129,0.05)" : decision === "rejected" ? "rgba(239,68,68,0.04)" : (idx % 2 ? "#FAFBFC" : "#fff") }}>
+                        <tr key={r.sku} style={{ borderBottom: "1px solid var(--db-track-bg)", background: decision === "approved" ? "var(--db-pos-soft)" : decision === "rejected" ? "var(--db-neg-soft)" : (idx % 2 ? "var(--db-track-bg)" : "transparent") }}>
                           <td style={{ padding: "6px 6px", cursor: "pointer" }} onClick={() => setDetailSku(r.sku)}>
-                            <div style={{ width: 30, height: 30, background: "#F1F5F9", borderRadius: 4, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <div style={{ width: 30, height: 30, background: "var(--db-track-bg)", borderRadius: 4, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
                               {comp?.image ? <img src={comp.image} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={e => { e.target.style.display = "none"; }} /> : <span style={{ fontSize: 12, color: C.muted }}>📦</span>}
                             </div>
                           </td>
@@ -1217,7 +1175,7 @@ export default function App() {
                             <div style={{ fontWeight: 600, color: C.navy, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.sku_des || r.sku}</div>
                             <div style={{ fontSize: 9, color: C.muted, display: "flex", alignItems: "center", gap: 4 }}>
                               {r.brand}
-                              {r.family && <span style={{ background: "rgba(19,64,116,0.12)", color: C.blue, padding: "1px 6px", borderRadius: 4, fontSize: 8, fontWeight: 700 }}>👪 {r.family}</span>}
+                              {r.family && <span style={{ background: "var(--db-accent-soft)", color: C.blue, padding: "1px 6px", borderRadius: 4, fontSize: 8, fontWeight: 700 }}>👪 {r.family}</span>}
                             </div>
                           </td>
                           <td style={{ padding: "8px 6px", fontSize: 10, color: C.sub, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.category}</td>
@@ -1264,7 +1222,7 @@ export default function App() {
                               style={{
                                 width: "100%", maxWidth: 100, padding: "5px 6px",
                                 border: `1px solid ${r.isOverridden ? C.accent : C.border}`,
-                                background: r.isOverridden ? "#FFFBEB" : C.card,
+                                background: r.isOverridden ? "var(--db-warn-soft)" : C.card,
                                 borderRadius: 5, fontSize: 11, fontWeight: 700, color: C.navy, textAlign: "center",
                               }}
                             />
@@ -1293,7 +1251,7 @@ export default function App() {
                             {decision === "approved" && <div style={{ fontSize: 8, color: C.green }}>✓ aprobado</div>}
                             {decision === "rejected" && <div style={{ fontSize: 8, color: C.red }}>✗ usa actual</div>}
                           </td>
-                          <td style={{ padding: "8px 6px", textAlign: "center", fontWeight: 700, color: decision === "approved" ? C.green : C.navy, background: decision === "approved" ? "rgba(16,185,129,0.08)" : "transparent" }}>
+                          <td style={{ padding: "8px 6px", textAlign: "center", fontWeight: 700, color: decision === "approved" ? C.green : C.navy, background: decision === "approved" ? "var(--db-pos-soft)" : "transparent" }}>
                             ${r.priceFinal.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
                           </td>
                           <td style={{ padding: "8px 6px", textAlign: "center", whiteSpace: "nowrap" }}>
@@ -1311,8 +1269,8 @@ export default function App() {
                             }}
                               style={{
                                 padding: "4px 8px", marginRight: 4, borderRadius: 5, border: "none", cursor: "pointer", fontSize: 10, fontWeight: 700,
-                                background: decision === "approved" ? C.green : "rgba(16,185,129,0.12)",
-                                color: decision === "approved" ? "#fff" : C.green,
+                                background: decision === "approved" ? C.green : "var(--db-pos-soft)",
+                                color: decision === "approved" ? "var(--db-ink-inverse)" : C.green,
                               }}>✓</button>
                             <button onClick={() => {
                               const prev = approvals[r.sku] || "pending";
@@ -1328,8 +1286,8 @@ export default function App() {
                             }}
                               style={{
                                 padding: "4px 8px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 10, fontWeight: 700,
-                                background: decision === "rejected" ? C.red : "rgba(239,68,68,0.12)",
-                                color: decision === "rejected" ? "#fff" : C.red,
+                                background: decision === "rejected" ? C.red : "var(--db-neg-soft)",
+                                color: decision === "rejected" ? "var(--db-ink-inverse)" : C.red,
                               }}>✗</button>
                           </td>
                         </tr>
@@ -1340,9 +1298,9 @@ export default function App() {
               </div>
 
               <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 12, marginBottom: 24 }}>
-                <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.card, fontSize: 11, cursor: page === 0 ? "default" : "pointer", opacity: page === 0 ? 0.4 : 1 }}>Anterior</button>
+                <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="el-btn" style={{ padding: "4px 10px", fontSize: 11, cursor: page === 0 ? "default" : "pointer", opacity: page === 0 ? 0.4 : 1 }}>Anterior</button>
                 <span style={{ fontSize: 11, color: C.sub }}>{page + 1} / {totalPages || 1}</span>
-                <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.card, fontSize: 11, cursor: page >= totalPages - 1 ? "default" : "pointer", opacity: page >= totalPages - 1 ? 0.4 : 1 }}>Siguiente</button>
+                <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1} className="el-btn" style={{ padding: "4px 10px", fontSize: 11, cursor: page >= totalPages - 1 ? "default" : "pointer", opacity: page >= totalPages - 1 ? 0.4 : 1 }}>Siguiente</button>
               </div>
             </div>
           );
@@ -1421,7 +1379,7 @@ export default function App() {
             <div style={{ paddingBottom: 30 }}>
               <SectionHead ic="🧬">Clusterización del Portafolio</SectionHead>
 
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 14, fontSize: 11, color: C.sub, lineHeight: 1.6 }}>
+              <div className="el-card" style={{ padding: 16, marginBottom: 14, fontSize: 11, color: C.sub, lineHeight: 1.6 }}>
                 Se corre una <strong>clasificación Pareto ABCD por ingreso</strong> (A: top 70% del revenue, B: +20%, C: +8%, D: últimos 2%). Dentro de cada clase se corre un <strong>k-means (k=3)</strong> sobre 3 features normalizadas: <code>elasticidad</code>, <code>coeficiente de variación de ventas</code> y <code>rango de variación de precios</code>. Esto agrupa productos con comportamiento similar dentro de cada segmento de relevancia para tomar decisiones diferenciadas. Los productos <strong>sin señal de elasticidad</strong> no entran al k-means: forman su propio grupo dentro de cada clase.
               </div>
 
@@ -1441,13 +1399,13 @@ export default function App() {
 
               {/* Distribución de ingreso por banda de sensibilidad al precio */}
               <SectionHead ic="📊">Distribución de ingreso por sensibilidad al precio</SectionHead>
-              <div style={{ background: C.card, borderRadius: 10, padding: 16, border: `1px solid ${C.border}`, marginBottom: 14 }}>
+              <div className="el-card" style={{ padding: 16, marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: C.sub, marginBottom: 12, lineHeight: 1.5 }}>
                   Cada barra suma el <strong>ingreso total</strong> de los productos que caen en esa banda ("Sin señal" = no hay evidencia de sensibilidad al precio). En vez de un punto por producto, muestra <strong>dónde se concentra tu dinero</strong> según qué tan riesgoso es mover el precio. La etiqueta a la derecha es el % del ingreso analizado.
                 </div>
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={elastBands} layout="vertical" margin={{ top: 6, right: 56, left: 10, bottom: 6 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--db-hair-2)" horizontal={false} />
                     <XAxis type="number" tick={{ fontSize: 9, fill: C.sub }} tickFormatter={v => "$" + (v / 1000).toFixed(0) + "k"} />
                     <YAxis type="category" dataKey="label" width={150} tick={{ fontSize: 10, fill: C.text }} />
                     <Tooltip cursor={{ fill: "rgba(0,0,0,0.03)" }} content={<ChartTip />} />
@@ -1465,17 +1423,17 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-                <div style={{ marginTop: 12, padding: "10px 12px", background: "#F0FDF4", borderLeft: `4px solid ${C.green}`, borderRadius: 6, fontSize: 11, color: C.text, lineHeight: 1.55 }}>
+                <div style={{ marginTop: 12, padding: "10px 12px", background: "var(--db-pos-soft)", borderLeft: `4px solid ${C.green}`, borderRadius: 6, fontSize: 11, color: C.text, lineHeight: 1.55 }}>
                   <strong style={{ color: C.navy }}>💡 Insight:</strong> el <strong style={{ color: C.green }}>{inelBand.pct.toFixed(0)}%</strong> de tu ingreso analizado (${inelBand.revenue.toLocaleString("es-MX")}, {inelBand.count} SKUs) está en productos <strong>inelásticos</strong>: los candidatos más seguros para subir precio, porque el volumen reacciona poco al aumento. En cambio, el <strong style={{ color: C.red }}>{vhighBand.pct.toFixed(0)}%</strong> (${vhighBand.revenue.toLocaleString("es-MX")}) está en productos <strong>muy elásticos</strong>, donde subir precio puede reducir el ingreso total: ahí conviene sostener o bajar precio.
                 </div>
               </div>
 
               {/* Sub-clusters table */}
               <SectionHead ic="🧩">Sub-clusters de Comportamiento (k-means dentro de cada clase ABCD)</SectionHead>
-              <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, overflowX: "auto", marginBottom: 14 }}>
+              <div className="el-card" style={{ overflowX: "auto", marginBottom: 14 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                   <thead>
-                    <tr style={{ background: "#F8FAFC", borderBottom: `2px solid ${C.border}` }}>
+                    <tr style={{ background: "var(--db-track-bg)", borderBottom: `2px solid ${C.border}` }}>
                       {[
                         { k: "key", h: "Cluster", align: "left" },
                         { k: "abc", h: "Clase ABC", align: "left" },
@@ -1505,7 +1463,7 @@ export default function App() {
                       else if (b.avgElast === 0) action = "Revisar datos antes de actuar";
                       else action = "Candidato a subir precio con bajo riesgo";
                       return (
-                        <tr key={i} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 ? "#FAFBFC" : "#fff", cursor: "pointer" }}
+                        <tr key={i} style={{ borderBottom: "1px solid var(--db-track-bg)", background: i % 2 ? "var(--db-track-bg)" : "transparent", cursor: "pointer" }}
                           onClick={() => {
                             const products = rows.filter(r => clusterLabels[r.sku] === b.key)
                               .map(r => ({ ...r, _full: portfolioData.find(pd => pd.sku === r.sku) }));
@@ -1529,7 +1487,7 @@ export default function App() {
                 </table>
               </div>
 
-              <div style={{ background: "#EEF2FF", border: `1px solid #C7D2FE`, borderRadius: 10, padding: 14, fontSize: 11, color: C.text, lineHeight: 1.6 }}>
+              <div style={{ background: "var(--db-accent-soft)", border: `1px solid var(--el-info-line)`, borderRadius: 10, padding: 14, fontSize: 11, color: C.text, lineHeight: 1.6 }}>
                 <div style={{ fontWeight: 700, color: C.navy, marginBottom: 4 }}>💡 Cómo leer esto</div>
                 Los productos <strong>clase A</strong> concentran la mayor parte del ingreso y merecen decisiones tomadas una por una. Dentro de A, el sub-cluster "Elásticos" es el más peligroso de subir precio — el volumen reacciona más que el margen ganado. Los <strong>inelásticos estables</strong> de clase A suelen ser los mejores candidatos para optimización de precio porque mueven mucho ingreso con poco riesgo. Las clases C y D son típicamente candidatos a racionalización de surtido.
               </div>
@@ -1539,24 +1497,9 @@ export default function App() {
 
         {/* ═══ ADMIN TAB (Reglas + Auditoría en sub-secciones) ═══ */}
         {tab === "admin" && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, background: "#EFF3F8", borderRadius: 10, padding: 4 }}>
-            {[
-              { id: "rules", label: "Reglas de negocio", ic: "⚖️" },
-              { id: "audit", label: "Auditoría", ic: "🔍" },
-            ].map(s => {
-              const active = adminSection === s.id;
-              return (
-                <button key={s.id} onClick={() => setAdminSection(s.id)} style={{
-                  flex: "1 1 160px", minWidth: 140, padding: "9px 14px", borderRadius: 8, border: "none", cursor: "pointer",
-                  background: active ? C.card : "transparent",
-                  color: active ? C.navy : C.sub,
-                  fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                  boxShadow: active ? "0 2px 6px rgba(0,0,0,0.06)" : "none",
-                }}>
-                  <span>{s.ic}</span> {s.label}
-                </button>
-              );
-            })}
+          <div className="el-tabs" style={{ marginBottom: 4 }}>
+            <Pills label="Administración" value={adminSection} onChange={setAdminSection}
+              options={[{ v: "rules", t: "Reglas de negocio" }, { v: "audit", t: "Auditoría" }]} />
           </div>
         )}
 
@@ -1660,7 +1603,7 @@ export default function App() {
             <div style={{ paddingBottom: 30 }}>
               <SectionHead ic="⚖️">Reglas de Negocio (aplica a todo el portafolio)</SectionHead>
 
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18, marginBottom: 14 }}>
+              <div className="el-card" style={{ padding: 18, marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.6, marginBottom: 14 }}>
                   Estas reglas se aplican <strong>antes de mostrar el precio sugerido</strong> en el Portafolio. Si una regla se activa y modifica el precio, la razón queda registrada en la columna de razón. Deja un campo vacío para desactivar esa regla.
                 </div>
@@ -1672,7 +1615,7 @@ export default function App() {
                       <input type="number" min="0" max="100" step="1"
                         value={businessRules.maxPctChange ?? ""}
                         onChange={(e) => setBusinessRules(r => ({ ...r, maxPctChange: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        style={{ width: 80, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
+                        className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>% (±)</span>
                     </div>
@@ -1686,7 +1629,7 @@ export default function App() {
                         value={businessRules.minMarginPct ?? ""}
                         onChange={(e) => setBusinessRules(r => ({ ...r, minMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                         placeholder="ej. 15"
-                        style={{ width: 80, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
+                        className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>%</span>
                     </div>
@@ -1700,7 +1643,7 @@ export default function App() {
                         value={businessRules.maxMarginPct ?? ""}
                         onChange={(e) => setBusinessRules(r => ({ ...r, maxMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                         placeholder="ej. 60"
-                        style={{ width: 80, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
+                        className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>%</span>
                     </div>
@@ -1714,7 +1657,7 @@ export default function App() {
                         value={businessRules.priceAboveCompMin ?? ""}
                         onChange={(e) => setBusinessRules(r => ({ ...r, priceAboveCompMin: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                         placeholder="ej. 5"
-                        style={{ width: 80, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
+                        className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>%</span>
                     </div>
@@ -1729,7 +1672,7 @@ export default function App() {
                         value={businessRules.minPriceFloor ?? ""}
                         onChange={(e) => setBusinessRules(r => ({ ...r, minPriceFloor: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                         placeholder="0"
-                        style={{ width: 100, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
+                        className="el-field" style={{ width: 100, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                     </div>
                     <div style={{ fontSize: 9, color: C.muted, marginTop: 4 }}>Precio mínimo global (sin importar la sugerencia).</div>
@@ -1743,7 +1686,7 @@ export default function App() {
                         value={businessRules.maxPriceCeiling ?? ""}
                         onChange={(e) => setBusinessRules(r => ({ ...r, maxPriceCeiling: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                         placeholder="sin límite"
-                        style={{ width: 100, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
+                        className="el-field" style={{ width: 100, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                     </div>
                     <div style={{ fontSize: 9, color: C.muted, marginTop: 4 }}>Precio máximo global.</div>
@@ -1754,7 +1697,7 @@ export default function App() {
                     <select
                       value={businessRules.roundingMode}
                       onChange={(e) => setBusinessRules(r => ({ ...r, roundingMode: e.target.value }))}
-                      style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, marginTop: 4 }}
+                      className="el-field" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                     >
                       <option value="none">Ninguno (2 decimales)</option>
                       <option value="integer">Entero</option>
@@ -1774,7 +1717,7 @@ export default function App() {
                       priceAboveCompMin: null, roundingMode: "none",
                     });
                     logAudit({ action: "RULES_RESET_GLOBAL", detail: "Reset reglas de negocio globales a default" });
-                  }} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.card, color: C.sub, fontSize: 11, cursor: "pointer" }}>
+                  }} className="el-btn" style={{ padding: "7px 14px", color: C.sub, fontSize: 11, cursor: "pointer" }}>
                     Resetear valores
                   </button>
                   <div style={{ flex: 1, fontSize: 11, color: C.sub, alignSelf: "center" }}>
@@ -1794,34 +1737,32 @@ export default function App() {
 
               <SectionHead ic="📋">Reglas de Familia de Productos</SectionHead>
 
-              <div style={{ background: "#EEF2FF", border: `1px solid #C7D2FE`, borderLeft: `4px solid ${C.blue}`, borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 11, lineHeight: 1.6, color: C.text }}>
+              <div style={{ background: "var(--db-accent-soft)", border: `1px solid var(--el-info-line)`, borderLeft: `4px solid ${C.blue}`, borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 11, lineHeight: 1.6, color: C.text }}>
                 <div style={{ fontWeight: 700, color: C.navy, marginBottom: 4 }}>💡 Cómo funciona</div>
                 Carga un CSV con productos que pertenecen a la misma familia (ej. todos los sabores de <strong>Electrolit 625</strong>). Cuando un SKU tiene una regla de familia asignada, la elasticidad se calcula a partir de las <strong>ventas agregadas de toda la familia</strong>, y el <strong>mismo precio final sugerido</strong> se aplica a todos los SKUs (porque no puedes tener dos sabores del mismo producto a precios distintos en la tienda). Los SKUs sin regla siguen calculándose de forma individual.
               </div>
 
               {/* Crear visualmente */}
-              <div style={{ background: "linear-gradient(135deg," + C.navy + "," + C.blue + ")", color: "#fff", borderRadius: 12, padding: 18, marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div className="el-hero" style={{ background: "var(--el-hero)", color: "#fff", borderRadius: 22, padding: 18, marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>✨ Crear regla visualmente</div>
                   <div style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", lineHeight: 1.5 }}>
                     Abre un buscador interactivo para nombrar la familia y seleccionar los productos uno por uno.
                   </div>
                 </div>
-                <button onClick={() => setRuleBuilderOpen(true)} style={{
-                  padding: "10px 20px", borderRadius: 8, border: "none",
-                  background: "rgba(255,255,255,0.95)", color: C.navy, fontSize: 12, fontWeight: 700, cursor: "pointer",
-                  boxShadow: "0 2px 10px rgba(0,0,0,0.15)",
+                <button onClick={() => setRuleBuilderOpen(true)} className="el-btn-pri" style={{
+                  padding: "10px 20px", fontSize: 12, fontWeight: 700, cursor: "pointer",
                 }}>➕ Crear regla</button>
               </div>
 
               {/* Upload + descarga plantilla */}
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+              <div className="el-card" style={{ padding: 14, marginBottom: 14 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.navy, marginBottom: 10 }}>...o cargar reglas desde CSV</div>
                 <div style={{ fontSize: 11, color: C.sub, marginBottom: 10, lineHeight: 1.5 }}>
-                  Formato esperado (encabezado obligatorio): <code style={{ background: "#F1F5F9", padding: "2px 6px", borderRadius: 4 }}>family,upc</code> o <code style={{ background: "#F1F5F9", padding: "2px 6px", borderRadius: 4 }}>family,sku</code>. Una fila por producto.
+                  Formato esperado (encabezado obligatorio): <code style={{ background: "var(--db-track-bg)", padding: "2px 6px", borderRadius: 4 }}>family,upc</code> o <code style={{ background: "var(--db-track-bg)", padding: "2px 6px", borderRadius: 4 }}>family,sku</code>. Una fila por producto.
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <label style={{ padding: "8px 16px", background: `linear-gradient(135deg,${C.navy},${C.blue})`, color: "#fff", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                  <label className="el-btn-pri" style={{ padding: "8px 16px", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
                     Subir reglas
                     <input type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={(e) => handleFamilyUpload(e.target.files?.[0])} />
                   </label>
@@ -1859,16 +1800,16 @@ export default function App() {
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement("a"); a.href = url; a.download = "reglas_familia_actual.csv"; a.click();
                         URL.revokeObjectURL(url);
-                      }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${C.green}`, background: "rgba(16,185,129,0.08)", color: C.green, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                      }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${C.green}`, background: "var(--db-pos-soft)", color: C.green, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                         Descargar reglas actuales
                       </button>
-                      <button onClick={() => { setFamilyRules({}); setFamilyBusinessRules({}); }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${C.red}`, background: "rgba(239,68,68,0.08)", color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                      <button onClick={() => { setFamilyRules({}); setFamilyBusinessRules({}); }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${C.red}`, background: "var(--db-neg-soft)", color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                         Eliminar todas las reglas
                       </button>
                     </>
                   )}
                 </div>
-                {familyUploadMsg && <div style={{ marginTop: 10, padding: 8, background: familyUploadMsg.startsWith("✓") ? "rgba(16,185,129,0.08)" : "rgba(239,68,68,0.08)", color: familyUploadMsg.startsWith("✓") ? C.green : C.red, borderRadius: 6, fontSize: 11 }}>{familyUploadMsg}</div>}
+                {familyUploadMsg && <div style={{ marginTop: 10, padding: 8, background: familyUploadMsg.startsWith("✓") ? "var(--db-pos-soft)" : "var(--db-neg-soft)", color: familyUploadMsg.startsWith("✓") ? C.green : C.red, borderRadius: 6, fontSize: 11 }}>{familyUploadMsg}</div>}
               </div>
 
               {/* Resumen */}
@@ -1884,10 +1825,10 @@ export default function App() {
                   No hay reglas de familia cargadas. Los cálculos se hacen a nivel SKU individual.
                 </div>
               ) : (
-                <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, overflowX: "auto" }}>
+                <div className="el-card" style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                     <thead>
-                      <tr style={{ background: "#F8FAFC", borderBottom: `2px solid ${C.border}` }}>
+                      <tr style={{ background: "var(--db-track-bg)", borderBottom: `2px solid ${C.border}` }}>
                         {["Familia", "# SKUs", "Unidades (último mes)", "Precio Prom.", "Elasticidad Agregada", "Método", "MAPE", "SKUs", "Acciones"].map((h, i) => (
                           <th key={i} style={{ padding: "10px 8px", textAlign: i < 1 || i === 7 ? "left" : "center", color: C.sub, fontWeight: 600, fontSize: 9, textTransform: "uppercase" }}>{h}</th>
                         ))}
@@ -1908,7 +1849,7 @@ export default function App() {
                           return "";
                         }).filter(Boolean).join(" · ") : null;
                         return (
-                          <tr key={f.name} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 ? "#FAFBFC" : "#fff" }}>
+                          <tr key={f.name} style={{ borderBottom: "1px solid var(--db-track-bg)", background: i % 2 ? "var(--db-track-bg)" : "transparent" }}>
                             <td style={{ padding: "10px 8px", fontWeight: 700, color: C.navy }}>
                               {f.name}
                               {frLabel && <div style={{ fontSize: 9, color: C.accent, marginTop: 2, fontWeight: 500 }}>🔧 {frLabel}</div>}
@@ -1924,7 +1865,7 @@ export default function App() {
                             <td style={{ padding: "10px 8px", fontSize: 10, color: C.sub, maxWidth: 300 }}>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
                                 {f.products.slice(0, 8).map(p => (
-                                  <span key={p.sku} title={p.sku_des} style={{ background: "#F1F5F9", padding: "2px 6px", borderRadius: 4, fontSize: 9 }}>
+                                  <span key={p.sku} title={p.sku_des} style={{ background: "var(--db-track-bg)", padding: "2px 6px", borderRadius: 4, fontSize: 9 }}>
                                     {p.sku}
                                   </span>
                                 ))}
@@ -1937,7 +1878,7 @@ export default function App() {
                                 for (const s of f.skus) delete next[s];
                                 setFamilyRules(next);
                                 setFamilyBusinessRules(r => { const n = { ...r }; delete n[f.name]; return n; });
-                              }} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${C.red}`, background: "rgba(239,68,68,0.08)", color: C.red, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>
+                              }} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${C.red}`, background: "var(--db-neg-soft)", color: C.red, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>
                                 Eliminar
                               </button>
                             </td>
@@ -1994,19 +1935,19 @@ export default function App() {
             <div style={{ paddingBottom: 30 }}>
               <SectionHead ic="🔍">Auditoría de Decisiones</SectionHead>
 
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <div className="el-card" style={{ padding: 14, marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>Usuario actual:</span>
                 <input
                   type="text"
                   value={currentUser}
                   onChange={(e) => { setCurrentUser(e.target.value); try { localStorage.setItem("elasticity_user", e.target.value); } catch { /* almacenamiento no disponible */ } }}
-                  style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, minWidth: 200 }}
+                  className="el-field" style={{ padding: "7px 12px", borderRadius: 6, fontSize: 12, minWidth: 200 }}
                 />
                 <div style={{ flex: 1 }} />
-                <button onClick={exportAuditCSV} disabled={auditLog.length === 0} style={{ padding: "7px 14px", borderRadius: 6, border: "none", background: auditLog.length > 0 ? `linear-gradient(135deg,#059669,#10B981)` : "#CBD5E1", color: "#fff", fontSize: 11, fontWeight: 700, cursor: auditLog.length > 0 ? "pointer" : "not-allowed" }}>Exportar CSV</button>
+                <button onClick={exportAuditCSV} disabled={auditLog.length === 0} className="el-btn-pri" style={{ padding: "7px 14px", fontSize: 11, fontWeight: 700, cursor: auditLog.length > 0 ? "pointer" : "not-allowed" }}>Exportar CSV</button>
                 <button onClick={() => {
                   if (window.confirm("¿Limpiar todo el log de auditoría?")) setAuditLog([]);
-                }} style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.card, color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Limpiar log</button>
+                }} className="el-btn" style={{ padding: "7px 12px", color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Limpiar log</button>
               </div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
@@ -2027,10 +1968,10 @@ export default function App() {
                   {timeline.length > 1 && (
                     <>
                       <SectionHead ic="📅">Actividad por día</SectionHead>
-                      <div style={{ background: C.card, borderRadius: 10, padding: 16, border: `1px solid ${C.border}`, marginBottom: 14 }}>
+                      <div className="el-card" style={{ padding: 16, marginBottom: 14 }}>
                         <ResponsiveContainer width="100%" height={220}>
                           <ComposedChart data={timeline} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--db-hair-2)" />
                             <XAxis dataKey="date" tick={{ fontSize: 9, fill: C.sub }} />
                             <YAxis tick={{ fontSize: 9, fill: C.sub }} />
                             <Tooltip content={<ChartTip />} />
@@ -2046,10 +1987,10 @@ export default function App() {
 
                   {/* Por usuario */}
                   <SectionHead ic="👥">Por Usuario</SectionHead>
-                  <div style={{ background: C.card, borderRadius: 10, padding: 16, border: `1px solid ${C.border}`, marginBottom: 14 }}>
+                  <div className="el-card" style={{ padding: 16, marginBottom: 14 }}>
                     <ResponsiveContainer width="100%" height={Math.max(200, users.length * 40)}>
                       <BarChart data={users} layout="vertical" margin={{ top: 10, right: 10, left: 80, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--db-hair-2)" />
                         <XAxis type="number" tick={{ fontSize: 9, fill: C.sub }} />
                         <YAxis type="category" dataKey="user" tick={{ fontSize: 10, fill: C.sub }} width={80} />
                         <Tooltip content={<ChartTip />} />
@@ -2058,16 +1999,16 @@ export default function App() {
                         <Bar dataKey="rejections" name="Rechazos" stackId="a" fill={C.red} />
                         <Bar dataKey="overrides" name="Overrides" stackId="a" fill={C.accent} />
                         <Bar dataKey="bulk" name="Masivas" stackId="a" fill={C.blue} />
-                        <Bar dataKey="rules" name="Reglas" stackId="a" fill="#7C3AED" />
+                        <Bar dataKey="rules" name="Reglas" stackId="a" fill="var(--elc-5)" />
                         <Bar dataKey="scenarios" name="Escenarios" stackId="a" fill={C.mid} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
 
-                  <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, overflowX: "auto", marginBottom: 14 }}>
+                  <div className="el-card" style={{ overflowX: "auto", marginBottom: 14 }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                       <thead>
-                        <tr style={{ background: "#F8FAFC", borderBottom: `2px solid ${C.border}` }}>
+                        <tr style={{ background: "var(--db-track-bg)", borderBottom: `2px solid ${C.border}` }}>
                           {["Usuario", "Total", "Aprobaciones", "Rechazos", "Overrides", "Masivas", "Reglas", "Escenarios"].map((h, i) => (
                             <th key={i} style={{ padding: "10px 8px", textAlign: i < 1 ? "left" : "center", fontSize: 9, color: C.sub, fontWeight: 600, textTransform: "uppercase" }}>{h}</th>
                           ))}
@@ -2075,14 +2016,14 @@ export default function App() {
                       </thead>
                       <tbody>
                         {users.map((u, i) => (
-                          <tr key={u.user} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 ? "#FAFBFC" : "#fff" }}>
+                          <tr key={u.user} style={{ borderBottom: "1px solid var(--db-track-bg)", background: i % 2 ? "var(--db-track-bg)" : "transparent" }}>
                             <td style={{ padding: "8px 8px", fontWeight: 600, color: C.navy }}>{u.user}</td>
                             <td style={{ padding: "8px 8px", textAlign: "center", fontWeight: 700 }}>{u.total}</td>
                             <td style={{ padding: "8px 8px", textAlign: "center", color: C.green }}>{u.approvals}</td>
                             <td style={{ padding: "8px 8px", textAlign: "center", color: C.red }}>{u.rejections}</td>
                             <td style={{ padding: "8px 8px", textAlign: "center", color: C.accent }}>{u.overrides}</td>
                             <td style={{ padding: "8px 8px", textAlign: "center", color: C.blue }}>{u.bulk}</td>
-                            <td style={{ padding: "8px 8px", textAlign: "center", color: "#7C3AED" }}>{u.rules}</td>
+                            <td style={{ padding: "8px 8px", textAlign: "center", color: "var(--elc-5)" }}>{u.rules}</td>
                             <td style={{ padding: "8px 8px", textAlign: "center", color: C.mid }}>{u.scenarios}</td>
                           </tr>
                         ))}
@@ -2092,10 +2033,10 @@ export default function App() {
 
                   {/* Log detallado */}
                   <SectionHead ic="📜">Log Detallado (últimos 200)</SectionHead>
-                  <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, overflowX: "auto", maxHeight: 500, overflowY: "auto" }}>
+                  <div className="el-card" style={{ overflowX: "auto", maxHeight: 500, overflowY: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                       <thead>
-                        <tr style={{ background: "#F8FAFC", borderBottom: `2px solid ${C.border}`, position: "sticky", top: 0 }}>
+                        <tr style={{ background: "var(--db-track-bg)", borderBottom: `2px solid ${C.border}`, position: "sticky", top: 0 }}>
                           {["Fecha/hora", "Usuario", "Acción", "SKU", "Detalle"].map((h, i) => (
                             <th key={i} style={{ padding: "10px 8px", textAlign: "left", fontSize: 9, color: C.sub, fontWeight: 600, textTransform: "uppercase" }}>{h}</th>
                           ))}
@@ -2103,14 +2044,14 @@ export default function App() {
                       </thead>
                       <tbody>
                         {auditLog.slice(0, 200).map((e, i) => (
-                          <tr key={i} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 ? "#FAFBFC" : "#fff" }}>
+                          <tr key={i} style={{ borderBottom: "1px solid var(--db-track-bg)", background: i % 2 ? "var(--db-track-bg)" : "transparent" }}>
                             <td style={{ padding: "6px 8px", fontSize: 10, color: C.muted, whiteSpace: "nowrap" }}>{e.ts?.replace("T", " ").slice(0, 19)}</td>
                             <td style={{ padding: "6px 8px", fontSize: 10, color: C.navy, fontWeight: 600 }}>{e.user}</td>
                             <td style={{ padding: "6px 8px" }}>
                               <span style={{
                                 padding: "2px 8px", borderRadius: 10, fontSize: 9, fontWeight: 700,
-                                background: e.action === "APPROVE" ? "rgba(16,185,129,0.15)" : e.action === "REJECT" ? "rgba(239,68,68,0.15)" : e.action?.startsWith("BULK") ? "rgba(19,64,116,0.12)" : "rgba(124,58,237,0.12)",
-                                color: e.action === "APPROVE" ? C.green : e.action === "REJECT" ? C.red : e.action?.startsWith("BULK") ? C.blue : "#7C3AED",
+                                background: e.action === "APPROVE" ? "var(--db-pos-soft)" : e.action === "REJECT" ? "var(--db-neg-soft)" : e.action?.startsWith("BULK") ? "var(--db-accent-soft)" : "var(--db-accent-soft)",
+                                color: e.action === "APPROVE" ? C.green : e.action === "REJECT" ? C.red : e.action?.startsWith("BULK") ? C.blue : "var(--elc-5)",
                               }}>{e.action}</span>
                             </td>
                             <td style={{ padding: "6px 8px", fontSize: 10, color: C.sub }}>{e.sku || "—"}</td>
@@ -2131,16 +2072,16 @@ export default function App() {
           <div style={{ display: "grid", gap: 14, paddingBottom: 30 }}>
             <SectionHead ic="📚">Glosario y Mini Training de Elasticidad</SectionHead>
 
-            <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, padding: 18 }}>
+            <div className="el-card" style={{ padding: 18 }}>
               <h3 style={{ margin: 0, fontSize: 14, color: C.navy }}>¿Qué es la elasticidad precio-demanda?</h3>
               <p style={{ fontSize: 12, color: C.sub, lineHeight: 1.7, margin: "8px 0 0" }}>
                 Es una medida que indica <strong>cuánto cambia la cantidad demandada de un producto cuando cambia su precio</strong>. Matemáticamente es
-                <code style={{ background: "#F1F5F9", padding: "2px 8px", borderRadius: 4, margin: "0 4px" }}>E = (%ΔQ) / (%ΔP)</code>.
+                <code style={{ background: "var(--db-track-bg)", padding: "2px 8px", borderRadius: 4, margin: "0 4px" }}>E = (%ΔQ) / (%ΔP)</code>.
                 Siempre se interpreta como un <strong>número negativo</strong> (cuando el precio sube, la cantidad baja). Entre más grande en valor absoluto, más sensible es la demanda al precio.
               </p>
             </div>
 
-            <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, padding: 18 }}>
+            <div className="el-card" style={{ padding: 18 }}>
               <h3 style={{ margin: 0, fontSize: 14, color: C.navy }}>Cómo interpretar el valor</h3>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10, marginTop: 10 }}>
                 {[
@@ -2151,7 +2092,7 @@ export default function App() {
                   { rango: "|E| ≥ 2", titulo: "Muy elástica", color: C.red, desc: "Gran sensibilidad. Típico de commodities con muchos sustitutos. Ajusta con cuidado.", accion: "Bajar / ajustar fino" },
                   { rango: "E > 0", titulo: "Atípica (Giffen)", color: C.accent, desc: "Demanda sube cuando precio sube. Puede ser producto de prestigio, ruido estacional o serie con pocos datos.", accion: "Revisar datos" },
                 ].map((row, i) => (
-                  <div key={i} style={{ padding: 12, borderRadius: 8, background: "#F8FAFC", borderLeft: `3px solid ${row.color}` }}>
+                  <div key={i} style={{ padding: 12, borderRadius: 8, background: "var(--db-track-bg)", borderLeft: `3px solid ${row.color}` }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: row.color, letterSpacing: 0.5 }}>{row.rango}</div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginTop: 2 }}>{row.titulo}</div>
                     <div style={{ fontSize: 11, color: C.sub, margin: "6px 0" }}>{row.desc}</div>
@@ -2161,22 +2102,22 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, padding: 18 }}>
+            <div className="el-card" style={{ padding: 18 }}>
               <h3 style={{ margin: 0, fontSize: 14, color: C.navy }}>Métodos de cálculo usados</h3>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginTop: 10 }}>
-                <div style={{ padding: 14, borderRadius: 8, background: "#F0F4FF", borderTop: `3px solid ${METHOD_COLORS.ols}` }}>
+                <div style={{ padding: 14, borderRadius: 8, background: "var(--db-track-bg)", borderTop: `3px solid ${METHOD_COLORS.ols}` }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: METHOD_COLORS.ols }}>OLS Lineal</div>
                   <div style={{ fontSize: 11, color: C.sub, margin: "6px 0" }}>Modelo: <code>Q = a + b·P</code>. La elasticidad se deriva como <code>E = b × (P̄/Q̄)</code>.</div>
                   <div style={{ fontSize: 10, color: C.text, marginTop: 8 }}><strong>Cuándo usarlo:</strong> cuando la relación precio-demanda se ve aproximadamente lineal en el gráfico. Útil cuando los precios cambian poco.</div>
                   <div style={{ fontSize: 10, color: C.text, marginTop: 4 }}><strong>Limitación:</strong> la elasticidad depende del nivel de precio y cantidad promedio; no captura cambios porcentuales grandes.</div>
                 </div>
-                <div style={{ padding: 14, borderRadius: 8, background: "#F5F0FF", borderTop: `3px solid ${METHOD_COLORS.loglog}` }}>
+                <div style={{ padding: 14, borderRadius: 8, background: "var(--db-accent-soft)", borderTop: `3px solid ${METHOD_COLORS.loglog}` }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: METHOD_COLORS.loglog }}>Log-Log</div>
                   <div style={{ fontSize: 11, color: C.sub, margin: "6px 0" }}>Modelo: <code>ln(Q) = a + b·ln(P)</code>. El coeficiente <code>b</code> ES directamente la elasticidad.</div>
                   <div style={{ fontSize: 10, color: C.text, marginTop: 8 }}><strong>Cuándo usarlo:</strong> es el método más robusto para la mayoría de productos. Asume elasticidad constante, lo que suele ajustarse bien a datos reales.</div>
                   <div style={{ fontSize: 10, color: C.text, marginTop: 4 }}><strong>Limitación:</strong> requiere precios y unidades positivas (no cero).</div>
                 </div>
-                <div style={{ padding: 14, borderRadius: 8, background: "#FFFBEB", borderTop: `3px solid ${METHOD_COLORS.arc}` }}>
+                <div style={{ padding: 14, borderRadius: 8, background: "var(--db-warn-soft)", borderTop: `3px solid ${METHOD_COLORS.arc}` }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: METHOD_COLORS.arc }}>Arco Mid-Point</div>
                   <div style={{ fontSize: 11, color: C.sub, margin: "6px 0" }}>Calcula <code>E = (ΔQ/ΔP) × ((P₁+P₂)/(Q₁+Q₂))</code> entre cada par consecutivo y promedia.</div>
                   <div style={{ fontSize: 10, color: C.text, marginTop: 8 }}><strong>Cuándo usarlo:</strong> cuando hay pocos datos históricos o cuando ocurren <strong>cambios grandes y puntuales</strong> de precio (ej. promociones).</div>
@@ -2185,7 +2126,7 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, padding: 18 }}>
+            <div className="el-card" style={{ padding: 18 }}>
               <h3 style={{ margin: 0, fontSize: 14, color: C.navy }}>Métricas de error</h3>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginTop: 10 }}>
                 {[
@@ -2194,7 +2135,7 @@ export default function App() {
                   { k: "MAE", n: "Mean Absolute Error", d: "Error absoluto medio (en unidades). Fácil de interpretar: en promedio la predicción se desvía X unidades." },
                   { k: "R²", n: "Coeficiente de determinación", d: "% de la varianza de la demanda que explica el modelo. 1.0 es perfecto, 0 es igual a usar el promedio. Sólo se calcula para OLS y Log-Log." },
                 ].map((m, i) => (
-                  <div key={i} style={{ padding: 12, borderRadius: 8, background: "#F8FAFC" }}>
+                  <div key={i} style={{ padding: 12, borderRadius: 8, background: "var(--db-track-bg)" }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: C.navy }}>{m.k} <span style={{ fontSize: 10, fontWeight: 400, color: C.sub }}>— {m.n}</span></div>
                     <div style={{ fontSize: 11, color: C.sub, marginTop: 4, lineHeight: 1.5 }}>{m.d}</div>
                   </div>
@@ -2202,23 +2143,23 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, padding: 18 }}>
+            <div className="el-card" style={{ padding: 18 }}>
               <h3 style={{ margin: 0, fontSize: 14, color: C.navy }}>Fórmulas de precio óptimo</h3>
               <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.7, marginTop: 8 }}>
-                <p><strong>{"Caso elástico (|E| > 1):"}</strong> el precio que maximiza el ingreso es <code style={{ background: "#F1F5F9", padding: "2px 6px", borderRadius: 4 }}>P* = P_actual / (1 + 1/E)</code>. Esta es la condición de Lerner.</p>
+                <p><strong>{"Caso elástico (|E| > 1):"}</strong> el precio que maximiza el ingreso es <code style={{ background: "var(--db-track-bg)", padding: "2px 6px", borderRadius: 4 }}>P* = P_actual / (1 + 1/E)</code>. Esta es la condición de Lerner.</p>
                 <p><strong>{"Caso inelástico (|E| ≤ 1):"}</strong> matemáticamente el ingreso sigue creciendo con cualquier subida, así que la práctica común es sugerir subidas moderadas (5%) y cuidar no exceder precios de referencia.</p>
                 <p><strong>Restricciones aplicadas:</strong> el sugerido se acota a ±30% del precio actual y a un mínimo del costo × 1.02 (si hay dato de margen).</p>
               </div>
             </div>
 
-            <div style={{ background: "#F0FDF4", border: `1px solid #86EFAC`, borderLeft: `4px solid ${C.green}`, borderRadius: 12, padding: 18 }}>
+            <div style={{ background: "var(--db-pos-soft)", border: `1px solid var(--el-pos-line)`, borderLeft: `4px solid ${C.green}`, borderRadius: 12, padding: 18 }}>
               <h3 style={{ margin: 0, fontSize: 14, color: C.navy }}>⚙️ Cómo trabaja el optimizador de este dashboard</h3>
               <div style={{ fontSize: 11, color: C.text, lineHeight: 1.7, marginTop: 8 }}>
                 <p>
                   <strong>Búsqueda numérica del óptimo:</strong> el optimizador busca numéricamente dentro del rango ±30% el precio que maximiza
-                  <code style={{ background: "#DCFCE7", padding: "2px 6px", borderRadius: 4, margin: "0 4px" }}>P·Q(P)</code>
+                  <code style={{ background: "var(--db-pos-soft)", padding: "2px 6px", borderRadius: 4, margin: "0 4px" }}>P·Q(P)</code>
                   bajo
-                  <code style={{ background: "#DCFCE7", padding: "2px 6px", borderRadius: 4, margin: "0 4px" }}>Q = Q₀·(P/P₀)^E</code>.
+                  <code style={{ background: "var(--db-pos-soft)", padding: "2px 6px", borderRadius: 4, margin: "0 4px" }}>Q = Q₀·(P/P₀)^E</code>.
                   Esto <strong>garantiza que el ingreso proyectado sea siempre ≥ el actual</strong>.
                 </p>
                 <p>
@@ -2233,11 +2174,11 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, padding: 18 }}>
+            <div className="el-card" style={{ padding: 18 }}>
               <h3 style={{ margin: 0, fontSize: 14, color: C.navy }}>Comparativa rápida: cuándo elegir cada método</h3>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 10 }}>
                 <thead>
-                  <tr style={{ background: "#F8FAFC" }}>
+                  <tr style={{ background: "var(--db-track-bg)" }}>
                     <th style={{ textAlign: "left", padding: 8, color: C.sub, fontSize: 10 }}>Situación del producto</th>
                     <th style={{ textAlign: "left", padding: 8, color: C.sub, fontSize: 10 }}>Mejor método</th>
                     <th style={{ textAlign: "left", padding: 8, color: C.sub, fontSize: 10 }}>Por qué</th>
@@ -2251,7 +2192,7 @@ export default function App() {
                     ["Producto nuevo con poca historia", "Arco + validar con categoría", "Con 3-6 meses Log-Log se vuelve inestable."],
                     ["KVI (Key Value Item) muy sensible a competencia", "Log-Log + precio de competencia", "Elasticidad constante + benchmark externo."],
                   ].map((row, i) => (
-                    <tr key={i} style={{ borderTop: "1px solid #F1F5F9" }}>
+                    <tr key={i} style={{ borderTop: "1px solid var(--db-track-bg)" }}>
                       <td style={{ padding: 8, color: C.text }}>{row[0]}</td>
                       <td style={{ padding: 8, color: C.navy, fontWeight: 700 }}>{row[1]}</td>
                       <td style={{ padding: 8, color: C.sub }}>{row[2]}</td>
@@ -2261,7 +2202,7 @@ export default function App() {
               </table>
             </div>
 
-            <div style={{ background: "#EFF6FF", border: `1px solid #BFDBFE`, borderRadius: 12, padding: 18 }}>
+            <div style={{ background: "var(--db-accent-soft)", border: `1px solid var(--el-info-line)`, borderRadius: 12, padding: 18 }}>
               <h3 style={{ margin: 0, fontSize: 14, color: C.navy }}>💡 Tips prácticos</h3>
               <ul style={{ fontSize: 11, color: C.sub, lineHeight: 1.8, marginTop: 6, paddingLeft: 18 }}>
                 <li>Si el <strong>MAPE &gt; 60%</strong> en los 3 métodos, considera que los datos tienen demasiado ruido para una recomendación confiable.</li>
@@ -2319,7 +2260,7 @@ export default function App() {
           });
         }}
       />}
-    </div>
+    </>
   );
 }
 
@@ -2387,9 +2328,9 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
   const hasAnalysis = analysis?.results?.length > 0;
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(11,37,69,0.55)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 16px", overflowY: "auto" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.bg, borderRadius: 14, maxWidth: 1000, width: "100%", padding: "18px 20px 24px", boxShadow: "0 24px 70px rgba(0,0,0,0.35)", position: "relative" }}>
-        <button onClick={onClose} title="Cerrar (Esc)" style={{ position: "absolute", top: 12, right: 12, zIndex: 3, width: 30, height: 30, borderRadius: 8, border: "none", background: "rgba(15,23,42,0.45)", color: "#fff", fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "var(--db-scrim)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 16px", overflowY: "auto" }}>
+      <div onClick={e => e.stopPropagation()} className="el-modal" style={{ maxWidth: 1000, width: "100%", padding: "18px 20px 24px", position: "relative" }}>
+        <button onClick={onClose} title="Cerrar (Esc)" style={{ position: "absolute", top: 12, right: 12, zIndex: 3, width: 30, height: 30, borderRadius: 8, border: "none", background: "var(--db-scrim)", color: "#fff", fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         {!hasAnalysis ? (
           <div style={{ textAlign: "center", padding: 60, color: C.sub }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>📊</div>
@@ -2413,10 +2354,10 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
               const selComp = compData;
               const interp = activeMethod ? interpretElasticity(activeMethod.elasticity) : null;
               return (
-                <div style={{ background: `linear-gradient(135deg,${C.navy},${C.blue})`, borderRadius: 12, padding: 18, marginBottom: 14, boxShadow: "0 4px 16px rgba(11,37,69,0.2)", display: "flex", gap: 16 }}>
+                <div className="el-hero" style={{ background: "var(--el-hero)", borderRadius: 22, padding: 18, marginBottom: 14, display: "flex", gap: 16 }}>
                   <div style={{ width: 110, height: 110, flexShrink: 0, background: "rgba(255,255,255,0.08)", borderRadius: 10, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(255,255,255,0.1)" }}>
                     {selComp?.image ? (
-                      <img src={selComp.image} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff" }} onError={e => { e.target.style.display = "none"; }} />
+                      <img src={selComp.image} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", background: "var(--db-surface-hi)" }} onError={e => { e.target.style.display = "none"; }} />
                     ) : (
                       <span style={{ fontSize: 40 }}>📦</span>
                     )}
@@ -2427,7 +2368,7 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                       SKU: {product.sku} | UPC: {product.upc || "N/D"} | {product.department} | {product.category} | {product.brand}
                     </div>
                     {familyName && (
-                      <div style={{ marginTop: 4, display: "inline-block", background: "rgba(245,158,11,0.18)", color: "#FDE68A", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700 }}>
+                      <div style={{ marginTop: 4, display: "inline-block", background: "var(--db-warn-soft)", color: C.accent, padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700 }}>
                         👪 Familia: {familyName} · elasticidad agregada de {familyMemberCount} SKUs
                       </div>
                     )}
@@ -2438,9 +2379,9 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                       {activeMethod && (
                         <div>
                           <div style={{ fontSize: 9, color: "rgba(255,255,255,0.5)" }}>ELASTICIDAD</div>
-                          <div style={{ fontSize: 22, fontWeight: 800, color: activeMethod.elasticity < -1 ? "#F87171" : activeMethod.elasticity < 0 ? "#6EE7B7" : C.accent }}>{activeMethod.elasticity.toFixed(3)}</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: activeMethod.elasticity < -1 ? C.red : activeMethod.elasticity < 0 ? C.green : C.accent }}>{activeMethod.elasticity.toFixed(3)}</div>
                           {interp && (
-                            <div style={{ fontSize: 10, fontWeight: 700, color: "#FDE68A", marginTop: 2 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, marginTop: 2 }}>
                               {interp.label}
                             </div>
                           )}
@@ -2449,7 +2390,7 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                     </div>
                     {interp && (
                       <div style={{ marginTop: 10, padding: "8px 10px", background: "rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.85)", lineHeight: 1.5 }}>
-                        <strong style={{ color: "#FDE68A" }}>¿Qué significa?</strong> {interp.explanation}
+                        <strong style={{ color: C.accent }}>¿Qué significa?</strong> {interp.explanation}
                       </div>
                     )}
                   </div>
@@ -2462,7 +2403,7 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
               <button onClick={() => setSelMethod(null)} style={{
                 padding: "8px 14px", borderRadius: 8, border: selMethod === null ? `2px solid ${C.green}` : `1px solid ${C.border}`,
-                background: selMethod === null ? "rgba(16,185,129,0.08)" : C.card, cursor: "pointer", fontSize: 11, fontWeight: 600,
+                background: selMethod === null ? "var(--db-pos-soft)" : C.card, cursor: "pointer", fontSize: 11, fontWeight: 600,
                 color: selMethod === null ? C.green : C.sub,
               }}>
                 Auto (Mejor) {analysis.best && <span style={{ fontSize: 9, marginLeft: 4 }}>= {analysis.best.method}</span>}
@@ -2489,11 +2430,11 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                   <div key={r.id} style={{
                     background: C.card, borderRadius: 10, padding: 14,
                     border: isActive ? `2px solid ${METHOD_COLORS[r.id]}` : `1px solid ${C.border}`,
-                    boxShadow: isActive ? `0 2px 12px ${METHOD_COLORS[r.id]}22` : "0 1px 3px rgba(0,0,0,0.04)",
+                    boxShadow: isActive ? `0 2px 12px ${METHOD_COLORS[r.id]}22` : "none",
                     position: "relative",
                   }}>
                     {isBest && (
-                      <div style={{ position: "absolute", top: -8, right: 10, background: C.green, color: "#fff", fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 10 }}>
+                      <div style={{ position: "absolute", top: -8, right: 10, background: C.green, color: "var(--db-ink-inverse)", fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 10 }}>
                         RECOMENDADO
                       </div>
                     )}
@@ -2525,7 +2466,7 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
               const note = priceChangeNote(sug.pctChange, activeMethod.elasticity, lastMonth.price, lastMonth.margin, selComp?.minPrice);
               return (
                 <>
-                  <div style={{ background: "linear-gradient(135deg,#059669,#10B981)", borderRadius: 12, padding: 18, display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", marginBottom: 10, boxShadow: "0 4px 16px rgba(5,150,105,0.2)" }}>
+                  <div className="el-hero" style={{ background: "var(--el-hero-pos)", borderRadius: 22, padding: 18, display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", marginBottom: 10 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", textTransform: "uppercase", fontWeight: 600 }}>Precio Sugerido ({activeMethod.method})</div>
                       <div style={{ fontSize: 30, fontWeight: 800, color: "#fff" }}>${sug.suggestedPrice.toLocaleString("es-MX")}</div>
@@ -2538,13 +2479,13 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                       </div>
                       <div style={{ textAlign: "center" }}>
                         <div style={{ fontSize: 9, color: "rgba(255,255,255,0.5)" }}>CAMBIO</div>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: sug.pctChange > 0 ? "#BBF7D0" : "#FCA5A5" }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: sug.pctChange > 0 ? C.green : C.red }}>
                           {sug.pctChange > 0 ? "+" : ""}{sug.pctChange}%
                         </div>
                       </div>
                       <div style={{ textAlign: "center" }}>
                         <div style={{ fontSize: 9, color: "rgba(255,255,255,0.5)" }}>TIPO</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: "#FDE68A" }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: C.accent }}>
                           {Math.abs(activeMethod.elasticity) > 1 ? "Elastico" : "Inelastico"}
                         </div>
                       </div>
@@ -2552,7 +2493,7 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                   </div>
 
                   {/* Reasoning note */}
-                  <div style={{ background: "#FFFBEB", border: `1px solid ${C.accent}55`, borderLeft: `4px solid ${C.accent}`, borderRadius: 8, padding: "12px 14px", marginBottom: 14, fontSize: 11, color: C.text, lineHeight: 1.55 }}>
+                  <div style={{ background: "var(--db-warn-soft)", border: "1px solid var(--el-warn-line)", borderLeft: `4px solid ${C.accent}`, borderRadius: 8, padding: "12px 14px", marginBottom: 14, fontSize: 11, color: C.text, lineHeight: 1.55 }}>
                     <div style={{ fontWeight: 700, color: C.navy, marginBottom: 4, fontSize: 11 }}>
                       {sug.pctChange > 0.5 ? "⬆️ Razón para subir:" : sug.pctChange < -0.5 ? "⬇️ Razón para bajar:" : "➡️ Razón para mantener:"}
                     </div>
@@ -2561,25 +2502,25 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
 
                   {/* Competitor prices */}
                   {selComp && selComp.competitors?.length > 0 && (
-                    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                    <div className="el-card" style={{ padding: 14, marginBottom: 14 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: C.navy }}>🏪 Precios de la Competencia</div>
                         <div style={{ fontSize: 10, color: C.sub }}>UPC: {selComp.upc}</div>
                       </div>
                       <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
-                        <div style={{ padding: "6px 10px", background: "rgba(16,185,129,0.08)", borderRadius: 6, fontSize: 11 }}>
+                        <div style={{ padding: "6px 10px", background: "var(--db-pos-soft)", borderRadius: 6, fontSize: 11 }}>
                           <span style={{ color: C.sub }}>Mín: </span><strong style={{ color: C.green }}>${selComp.minPrice?.toLocaleString("es-MX")}</strong>
                         </div>
-                        <div style={{ padding: "6px 10px", background: "rgba(19,64,116,0.08)", borderRadius: 6, fontSize: 11 }}>
+                        <div style={{ padding: "6px 10px", background: "var(--db-accent-soft)", borderRadius: 6, fontSize: 11 }}>
                           <span style={{ color: C.sub }}>Prom: </span><strong style={{ color: C.blue }}>${selComp.avgPrice?.toLocaleString("es-MX")}</strong>
                         </div>
-                        <div style={{ padding: "6px 10px", background: "rgba(239,68,68,0.08)", borderRadius: 6, fontSize: 11 }}>
+                        <div style={{ padding: "6px 10px", background: "var(--db-neg-soft)", borderRadius: 6, fontSize: 11 }}>
                           <span style={{ color: C.sub }}>Máx: </span><strong style={{ color: C.red }}>${selComp.maxPrice?.toLocaleString("es-MX")}</strong>
                         </div>
-                        <div style={{ padding: "6px 10px", background: "rgba(245,158,11,0.08)", borderRadius: 6, fontSize: 11 }}>
+                        <div style={{ padding: "6px 10px", background: "var(--db-warn-soft)", borderRadius: 6, fontSize: 11 }}>
                           <span style={{ color: C.sub }}>Tu precio: </span><strong style={{ color: C.accent }}>${lastMonth.price.toLocaleString("es-MX")}</strong>
                         </div>
-                        <div style={{ padding: "6px 10px", background: "#EEF2FF", borderRadius: 6, fontSize: 11 }}>
+                        <div style={{ padding: "6px 10px", background: "var(--db-accent-soft)", borderRadius: 6, fontSize: 11 }}>
                           <span style={{ color: C.sub }}>Sugerido vs Mín: </span>
                           <strong style={{ color: sug.suggestedPrice > selComp.minPrice ? C.red : C.green }}>
                             {(((sug.suggestedPrice - selComp.minPrice) / selComp.minPrice) * 100).toFixed(1)}%
@@ -2588,7 +2529,7 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px,1fr))", gap: 6 }}>
                         {selComp.competitors.slice(0, 12).map((c, i) => (
-                          <div key={i} style={{ padding: "6px 8px", background: "#F8FAFC", borderRadius: 6, fontSize: 10, display: "flex", justifyContent: "space-between", gap: 6 }}>
+                          <div key={i} style={{ padding: "6px 8px", background: "var(--db-track-bg)", borderRadius: 6, fontSize: 10, display: "flex", justifyContent: "space-between", gap: 6 }}>
                             <span style={{ color: C.sub, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{c.canal}</span>
                             <strong style={{ color: C.navy, flexShrink: 0 }}>${c.price.toLocaleString("es-MX")}</strong>
                           </div>
@@ -2647,16 +2588,16 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
               return (
                 <>
                   <SectionHead ic="📈">Precio, Demanda y Forecast (últimos 6 + siguientes 6 meses)</SectionHead>
-                  <div style={{ background: C.card, borderRadius: 10, padding: 16, border: `1px solid ${C.border}`, marginBottom: 14 }}>
+                  <div className="el-card" style={{ padding: 16, marginBottom: 14 }}>
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10, fontSize: 11 }}>
-                      <div style={{ padding: "6px 10px", background: "rgba(19,64,116,0.08)", borderRadius: 6 }}>
+                      <div style={{ padding: "6px 10px", background: "var(--db-accent-soft)", borderRadius: 6 }}>
                         <span style={{ color: C.sub }}>Venta histórica 6m: </span><strong style={{ color: C.blue }}>${totalHistRev.toLocaleString("es-MX")}</strong>
                       </div>
-                      <div style={{ padding: "6px 10px", background: "rgba(16,185,129,0.08)", borderRadius: 6 }}>
+                      <div style={{ padding: "6px 10px", background: "var(--db-pos-soft)", borderRadius: 6 }}>
                         <span style={{ color: C.sub }}>Venta forecast 6m: </span><strong style={{ color: C.green }}>${totalFcstRev.toLocaleString("es-MX")}</strong>
                       </div>
                       {sug && (
-                        <div style={{ padding: "6px 10px", background: "rgba(245,158,11,0.08)", borderRadius: 6 }}>
+                        <div style={{ padding: "6px 10px", background: "var(--db-warn-soft)", borderRadius: 6 }}>
                           <span style={{ color: C.sub }}>Precio objetivo forecast: </span><strong style={{ color: C.accent }}>${sug.suggestedPrice}</strong>
                           {" "}(desde ${lastMonth.price})
                         </div>
@@ -2664,14 +2605,14 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                     </div>
                     <ResponsiveContainer width="100%" height={280}>
                       <ComposedChart data={combo} margin={{ top: 10, right: 10, left: -5, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--db-hair-2)" />
                         <XAxis dataKey="month" tick={{ fontSize: 9, fill: C.sub }} />
                         <YAxis yAxisId="left" tick={{ fontSize: 9, fill: C.sub }} tickFormatter={v => "$" + v.toLocaleString()} />
                         <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9, fill: C.sub }} />
                         <Tooltip content={<ChartTip />} />
                         <Legend wrapperStyle={{ fontSize: 10 }} />
                         <Bar yAxisId="right" dataKey="unidadesHist" name="Unidades (hist.)" fill={C.mid} opacity={0.35} radius={[2, 2, 0, 0]} />
-                        <Bar yAxisId="right" dataKey="unidadesF" name="Unidades (forecast ≈ prom. 6m × elasticidad)" fill="#FDE68A" opacity={0.85} stroke={C.accent} radius={[2, 2, 0, 0]} />
+                        <Bar yAxisId="right" dataKey="unidadesF" name="Unidades (forecast ≈ prom. 6m × elasticidad)" fill={C.accent} fillOpacity={0.35} stroke={C.accent} radius={[2, 2, 0, 0]} />
                         <Line yAxisId="left" type="monotone" dataKey="precio" name="Precio (hist.)" stroke={C.blue} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} />
                         <Line yAxisId="left" type="monotone" dataKey="precioF" name="Precio (forecast)" stroke={C.accent} strokeWidth={2.5} strokeDasharray="5 3" dot={{ r: 3 }} connectNulls={false} />
                       </ComposedChart>
@@ -2715,13 +2656,13 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                     return (
                       <>
                         <SectionHead ic="🎲">Análisis What-If (sweet spot de maximización de ingreso)</SectionHead>
-                        <div style={{ background: C.card, borderRadius: 10, padding: 16, border: `1px solid ${C.border}`, marginBottom: 14 }}>
+                        <div className="el-card" style={{ padding: 16, marginBottom: 14 }}>
                           <div style={{ fontSize: 11, color: C.sub, marginBottom: 10, lineHeight: 1.5 }}>
                             La curva usa un <strong>modelo lineal local</strong> calibrado al precio y unidades actuales y a la elasticidad estimada. Este modelo captura la intuición de que si bajas demasiado el precio, aunque vendas más unidades, el <strong>ingreso total cae</strong> porque el precio unitario se reduce más rápido de lo que crece el volumen. La línea <span style={{ color: C.accent, fontWeight: 700 }}>⭐ sweet spot</span> marca el precio donde la <em>venta total ($)</em> es máxima.
                           </div>
                           <ResponsiveContainer width="100%" height={280}>
                             <ComposedChart data={scenarios} margin={{ top: 10, right: 10, left: -5, bottom: 0 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                              <CartesianGrid strokeDasharray="3 3" stroke="var(--db-hair-2)" />
                               <XAxis dataKey="label" tick={{ fontSize: 10, fill: C.sub }} label={{ value: "Cambio de precio vs actual", position: "insideBottom", offset: -5, fontSize: 10, fill: C.sub }} />
                               <YAxis tick={{ fontSize: 9, fill: C.sub }} tickFormatter={v => "$" + (v / 1000).toFixed(0) + "k"} />
                               <Tooltip content={<ChartTip />} />
@@ -2732,23 +2673,23 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
                           </ResponsiveContainer>
 
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginTop: 14 }}>
-                            <div style={{ padding: 10, borderRadius: 8, background: "rgba(19,64,116,0.06)", borderLeft: `3px solid ${C.blue}` }}>
+                            <div style={{ padding: 10, borderRadius: 8, background: "var(--db-accent-soft)", borderLeft: `3px solid ${C.blue}` }}>
                               <div style={{ fontSize: 9, color: C.sub, fontWeight: 600, textTransform: "uppercase" }}>Precio actual (0%)</div>
                               <div style={{ fontSize: 14, fontWeight: 700, color: C.blue }}>${P0} → ${Math.round(currentRev).toLocaleString()}</div>
                             </div>
-                            <div style={{ padding: 10, borderRadius: 8, background: "rgba(245,158,11,0.12)", borderLeft: `3px solid ${C.accent}` }}>
+                            <div style={{ padding: 10, borderRadius: 8, background: "var(--db-warn-soft)", borderLeft: `3px solid ${C.accent}` }}>
                               <div style={{ fontSize: 9, color: C.accent, fontWeight: 700, textTransform: "uppercase" }}>⭐ Sweet spot (máx. ingreso)</div>
                               <div style={{ fontSize: 14, fontWeight: 700, color: C.accent }}>${sweet.toFixed(2)} ({sweetPct > 0 ? "+" : ""}{sweetPct.toFixed(1)}%) → ${Math.round(sweetRev).toLocaleString()}</div>
                             </div>
                             {sug && (
-                              <div style={{ padding: 10, borderRadius: 8, background: "rgba(16,185,129,0.08)", borderLeft: `3px solid ${C.green}` }}>
+                              <div style={{ padding: 10, borderRadius: 8, background: "var(--db-pos-soft)", borderLeft: `3px solid ${C.green}` }}>
                                 <div style={{ fontSize: 9, color: C.sub, fontWeight: 600, textTransform: "uppercase" }}>Sugerido por optimizador ({sug.pctChange > 0 ? "+" : ""}{sug.pctChange}%)</div>
                                 <div style={{ fontSize: 14, fontWeight: 700, color: C.green }}>${sug.suggestedPrice} → ${Math.round(sugRev).toLocaleString()}</div>
                               </div>
                             )}
                           </div>
 
-                          <div style={{ marginTop: 12, padding: "10px 12px", background: "#FFFBEB", borderLeft: `4px solid ${C.accent}`, borderRadius: 6, fontSize: 11, color: C.text, lineHeight: 1.55 }}>
+                          <div style={{ marginTop: 12, padding: "10px 12px", background: "var(--db-warn-soft)", borderLeft: `4px solid ${C.accent}`, borderRadius: 6, fontSize: 11, color: C.text, lineHeight: 1.55 }}>
                             <strong style={{ color: C.navy }}>Veredicto:</strong>{" "}
                             {Math.abs(sweetPct) < 0.5
                               ? "el precio actual ya está en el sweet spot — mantenerlo maximiza ingreso."
@@ -2768,10 +2709,10 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
             })()}
 
             <SectionHead ic="🎯">Demanda Real vs Predicha por Metodo</SectionHead>
-            <div style={{ background: C.card, borderRadius: 10, padding: 16, border: `1px solid ${C.border}`, marginBottom: 14 }}>
+            <div className="el-card" style={{ padding: 16, marginBottom: 14 }}>
               <ResponsiveContainer width="100%" height={250}>
                 <LineChart data={chartData} margin={{ top: 10, right: 10, left: -5, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--db-hair-2)" />
                   <XAxis dataKey="month" tick={{ fontSize: 9, fill: C.sub }} />
                   <YAxis tick={{ fontSize: 9, fill: C.sub }} />
                   <Tooltip content={<ChartTip />} />
@@ -2785,10 +2726,10 @@ function ProductDetailModal({ product, analysis, compData, familyName, familyMem
             </div>
 
             <SectionHead ic="🔍">Dispersión Precio vs Cantidad</SectionHead>
-            <div style={{ background: C.card, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+            <div className="el-card" style={{ padding: 16 }}>
               <ResponsiveContainer width="100%" height={220}>
                 <ScatterChart margin={{ top: 10, right: 10, left: -5, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--db-hair-2)" />
                   <XAxis dataKey="price" name="Precio" tick={{ fontSize: 9, fill: C.sub }} tickFormatter={v => "$" + v} />
                   <YAxis dataKey="units" name="Unidades" tick={{ fontSize: 9, fill: C.sub }} />
                   <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<ChartTip />} />
@@ -2838,12 +2779,12 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
 
   return (
     <div onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(11,37,69,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      style={{ position: "fixed", inset: 0, background: "var(--db-scrim)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, borderRadius: 12, maxWidth: 900, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "hidden" }}>
+        className="el-modal" style={{ maxWidth: 900, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: 18, borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: C.navy }}>➕ Nueva regla de familia</div>
-          <button onClick={onClose} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.card, cursor: "pointer", fontSize: 12, fontWeight: 600, color: C.sub }}>Cerrar ✕</button>
+          <button onClick={onClose} className="el-btn" style={{ padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600, color: C.sub }}>Cerrar ✕</button>
         </div>
 
         <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14, overflow: "hidden", flex: 1 }}>
@@ -2852,7 +2793,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
             <input
               type="text" value={familyName} onChange={(e) => setFamilyName(e.target.value)}
               placeholder='ej. "Electrolit 625"'
-              style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, marginTop: 4, outline: "none" }}
+              className="el-field" style={{ width: "100%", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginTop: 4, outline: "none" }}
             />
           </div>
 
@@ -2861,7 +2802,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
             <input
               type="text" value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder="Empieza a escribir para buscar..."
-              style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, marginTop: 4, outline: "none" }}
+              className="el-field" style={{ width: "100%", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginTop: 4, outline: "none" }}
             />
           </div>
 
@@ -2869,7 +2810,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
             {/* Resultados de búsqueda */}
             <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
               <div style={{ fontSize: 10, color: C.sub, fontWeight: 600, textTransform: "uppercase", marginBottom: 6 }}>Resultados {results.length > 0 && `(${results.length})`}</div>
-              <div style={{ flex: 1, overflow: "auto", border: `1px solid ${C.border}`, borderRadius: 8, background: "#FAFBFC" }}>
+              <div style={{ flex: 1, overflow: "auto", border: `1px solid ${C.border}`, borderRadius: 8, background: "var(--db-track-bg)" }}>
                 {search.length < 2 ? (
                   <div style={{ padding: 30, textAlign: "center", color: C.muted, fontSize: 11 }}>Escribe al menos 2 caracteres para buscar</div>
                 ) : results.length === 0 ? (
@@ -2881,11 +2822,11 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
                     const conflict = existingRules[p.sku] && existingRules[p.sku] !== familyName;
                     return (
                       <div key={p.sku} onClick={() => setSelected(s => ({ ...s, [p.sku]: !s[p.sku] }))}
-                        style={{ padding: "8px 10px", borderBottom: `1px solid ${C.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, background: isSel ? "rgba(16,185,129,0.08)" : "transparent" }}>
-                        <div style={{ width: 22, height: 22, background: "#fff", border: `2px solid ${isSel ? C.green : C.border}`, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        style={{ padding: "8px 10px", borderBottom: `1px solid ${C.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, background: isSel ? "var(--db-pos-soft)" : "transparent" }}>
+                        <div style={{ width: 22, height: 22, background: "var(--db-surface-hi)", border: `2px solid ${isSel ? C.green : C.border}`, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                           {isSel && <span style={{ color: C.green, fontWeight: 700, fontSize: 14 }}>✓</span>}
                         </div>
-                        <div style={{ width: 28, height: 28, background: "#F1F5F9", borderRadius: 4, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <div style={{ width: 28, height: 28, background: "var(--db-track-bg)", borderRadius: 4, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                           {img ? <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={e => { e.target.style.display = "none"; }} /> : <span style={{ fontSize: 12 }}>📦</span>}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -2906,7 +2847,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
                 <span>Seleccionados ({selectedSkus.length})</span>
                 {selectedSkus.length > 0 && <button onClick={() => setSelected({})} style={{ padding: 0, background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 10 }}>Limpiar</button>}
               </div>
-              <div style={{ flex: 1, overflow: "auto", border: `1px solid ${C.border}`, borderRadius: 8, background: "#FAFBFC" }}>
+              <div style={{ flex: 1, overflow: "auto", border: `1px solid ${C.border}`, borderRadius: 8, background: "var(--db-track-bg)" }}>
                 {selectedSkus.length === 0 ? (
                   <div style={{ padding: 30, textAlign: "center", color: C.muted, fontSize: 11 }}>Aún no has seleccionado productos</div>
                 ) : (
@@ -2917,7 +2858,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
                       <div key={sku} style={{ padding: "6px 10px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
                         <div style={{ flex: 1, color: C.navy, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.sku_des || sku}</div>
                         <button onClick={() => setSelected(s => ({ ...s, [sku]: false }))}
-                          style={{ padding: "2px 8px", background: "rgba(239,68,68,0.1)", border: "none", color: C.red, borderRadius: 4, cursor: "pointer", fontSize: 10 }}>✕</button>
+                          style={{ padding: "2px 8px", background: "var(--db-neg-soft)", border: "none", color: C.red, borderRadius: 4, cursor: "pointer", fontSize: 10 }}>✕</button>
                       </div>
                     );
                   })
@@ -2929,11 +2870,11 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
 
         {/* Reglas de negocio específicas para esta familia */}
         <div style={{ padding: "0 18px 14px" }}>
-          <button onClick={() => setShowRules(s => !s)} style={{ padding: "8px 12px", border: `1px solid ${C.border}`, background: showRules ? C.card : "#F8FAFC", borderRadius: 6, fontSize: 11, fontWeight: 600, color: C.navy, cursor: "pointer", width: "100%", textAlign: "left" }}>
+          <button onClick={() => setShowRules(s => !s)} style={{ padding: "8px 12px", border: `1px solid ${C.border}`, background: showRules ? C.card : "var(--db-track-bg)", borderRadius: 6, fontSize: 11, fontWeight: 600, color: C.navy, cursor: "pointer", width: "100%", textAlign: "left" }}>
             {showRules ? "▼" : "▶"} Reglas de negocio específicas para esta familia (opcional)
           </button>
           {showRules && (
-            <div style={{ padding: 14, border: `1px dashed ${C.border}`, borderRadius: 6, marginTop: 8, background: "#FAFBFC" }}>
+            <div style={{ padding: 14, border: `1px dashed ${C.border}`, borderRadius: 6, marginTop: 8, background: "var(--db-track-bg)" }}>
               <div style={{ fontSize: 10, color: C.sub, marginBottom: 10, lineHeight: 1.5 }}>
                 Estas reglas <strong>solo aplicarán a los productos de esta familia</strong> y sobreescriben las reglas globales. Deja vacío para usar las globales.
               </div>
@@ -2944,7 +2885,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
                     value={rules.maxPctChange ?? ""}
                     onChange={(e) => setRules(r => ({ ...r, maxPctChange: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                     placeholder="ej. 10"
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, marginTop: 4 }}
+                    className="el-field" style={{ width: "100%", padding: "7px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                   />
                 </div>
                 <div>
@@ -2953,7 +2894,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
                     value={rules.minMarginPct ?? ""}
                     onChange={(e) => setRules(r => ({ ...r, minMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                     placeholder="ej. 15"
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, marginTop: 4 }}
+                    className="el-field" style={{ width: "100%", padding: "7px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                   />
                 </div>
                 <div>
@@ -2962,7 +2903,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
                     value={rules.maxMarginPct ?? ""}
                     onChange={(e) => setRules(r => ({ ...r, maxMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                     placeholder="ej. 60"
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, marginTop: 4 }}
+                    className="el-field" style={{ width: "100%", padding: "7px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                   />
                 </div>
                 <div>
@@ -2971,7 +2912,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
                     value={rules.minPriceFloor ?? ""}
                     onChange={(e) => setRules(r => ({ ...r, minPriceFloor: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                     placeholder="0"
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, marginTop: 4 }}
+                    className="el-field" style={{ width: "100%", padding: "7px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                   />
                 </div>
                 <div>
@@ -2980,7 +2921,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
                     value={rules.maxPriceCeiling ?? ""}
                     onChange={(e) => setRules(r => ({ ...r, maxPriceCeiling: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                     placeholder="sin límite"
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, marginTop: 4 }}
+                    className="el-field" style={{ width: "100%", padding: "7px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                   />
                 </div>
                 <div>
@@ -2989,7 +2930,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
                     value={rules.priceAboveCompMin ?? ""}
                     onChange={(e) => setRules(r => ({ ...r, priceAboveCompMin: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                     placeholder="ej. 5"
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, marginTop: 4 }}
+                    className="el-field" style={{ width: "100%", padding: "7px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                   />
                 </div>
                 <div>
@@ -2997,7 +2938,7 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
                   <select
                     value={rules.roundingMode ?? ""}
                     onChange={(e) => setRules(r => ({ ...r, roundingMode: e.target.value || null }))}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, marginTop: 4 }}
+                    className="el-field" style={{ width: "100%", padding: "7px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                   >
                     <option value="">Global</option>
                     <option value="none">Ninguno (2 decimales)</option>
@@ -3012,18 +2953,16 @@ function RuleBuilder({ allProducts, existingRules, compBySku, onClose, onSave })
           )}
         </div>
 
-        <div style={{ padding: 14, borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#F8FAFC" }}>
+        <div style={{ padding: 14, borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--db-track-bg)" }}>
           <div style={{ fontSize: 11, color: C.sub }}>
             {canSave ? `✓ Listo: "${familyName}" con ${selectedSkus.length} productos` : "Completa el nombre y selecciona al menos 1 producto"}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, fontSize: 12, color: C.sub, cursor: "pointer" }}>Cancelar</button>
+            <button onClick={onClose} className="el-btn" style={{ padding: "9px 18px", fontSize: 12, color: C.sub, cursor: "pointer" }}>Cancelar</button>
             <button disabled={!canSave}
               onClick={() => onSave(familyName.trim(), selectedSkus, cleanRules())}
-              style={{
-                padding: "9px 18px", borderRadius: 8, border: "none",
-                background: canSave ? `linear-gradient(135deg,${C.navy},${C.blue})` : "#CBD5E1",
-                color: "#fff", fontSize: 12, fontWeight: 700, cursor: canSave ? "pointer" : "not-allowed",
+              className="el-btn-pri" style={{
+                padding: "9px 18px", fontSize: 12, fontWeight: 700, cursor: canSave ? "pointer" : "not-allowed",
               }}>Guardar regla</button>
           </div>
         </div>
@@ -3056,9 +2995,9 @@ function ClusterPopup({ clusterPopup, onClose, onSelectSku }) {
 
   return (
     <div onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(11,37,69,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      style={{ position: "fixed", inset: 0, background: "var(--db-scrim)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, borderRadius: 12, maxWidth: 1100, width: "100%", maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        className="el-modal" style={{ maxWidth: 1100, width: "100%", maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         <div style={{ padding: 18, borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
           <div>
             <div style={{ fontSize: 10, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>Cluster</div>
@@ -3068,12 +3007,12 @@ function ClusterPopup({ clusterPopup, onClose, onSelectSku }) {
             </div>
             <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>{rows.length} productos · Acción sugerida: <strong style={{ color: C.text }}>{clusterPopup.action}</strong></div>
           </div>
-          <button onClick={onClose} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.card, cursor: "pointer", fontSize: 12, fontWeight: 600, color: C.sub }}>Cerrar ✕</button>
+          <button onClick={onClose} className="el-btn" style={{ padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600, color: C.sub }}>Cerrar ✕</button>
         </div>
         <div style={{ overflow: "auto", flex: 1 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
             <thead>
-              <tr style={{ background: "#F8FAFC", borderBottom: `2px solid ${C.border}`, position: "sticky", top: 0 }}>
+              <tr style={{ background: "var(--db-track-bg)", borderBottom: `2px solid ${C.border}`, position: "sticky", top: 0 }}>
                 {[
                   { k: "sku", h: "SKU", align: "left" },
                   { k: "sku_des", h: "Producto", align: "left" },
@@ -3094,7 +3033,7 @@ function ClusterPopup({ clusterPopup, onClose, onSelectSku }) {
             </thead>
             <tbody>
               {rows.map((p, i) => (
-                <tr key={p.sku} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 ? "#FAFBFC" : "#fff", cursor: "pointer" }}
+                <tr key={p.sku} style={{ borderBottom: "1px solid var(--db-track-bg)", background: i % 2 ? "var(--db-track-bg)" : "transparent", cursor: "pointer" }}
                   onClick={() => onSelectSku(p.sku)}>
                   <td style={{ padding: "8px 8px", fontSize: 10, color: C.muted }}>{p.sku}</td>
                   <td style={{ padding: "8px 8px" }}>
