@@ -21,13 +21,19 @@ Preprocesamiento (desde la raíz — son **CommonJS** con `require`, mientras qu
 ```bash
 node preprocess.js              # sales_data_fesa.csv  → app/public/data.json
 node preprocess_competitor.js   # fesa_2026-04-17.csv  → app/public/competitor.json
-node preprocess_bodesa.js       # datos_bodesa/*.csv   → app/public/bodesa/{data,competitor}.json
 ```
 
-### Bodesa (segundo cliente)
-- Los CSV se bajan de `s3://data-bunker-prod-env/derivables/bodesa/` a `datos_bodesa/` (gitignored): `sell_in_sell_out/Sales_Data_Layout_Bodesa*.csv` (20 meses, 740 SKUs — el `Lay_Out_..._enero-febrero_2025.csv` de 2 meses ya no se usa), `client/Client.csv` y los últimos `competitors/bodesa_YYYY-MM-DD.csv`.
-- La app elige cliente por URL: `http://localhost:5174/?cliente=bodesa` carga `public/bodesa/`; sin parámetro carga FESA.
-- La elasticidad de Bodesa se calcula **en el preprocess**, no en la app: log-log con efectos fijos de SKU y de mes×departamento (la venta es muy estacional y los 3 métodos de la app no lo controlan). Sale `segmentElasticity` por depto y `product.estimate` por SKU (shrinkage hacia el depto). Si `data.segmentElasticity` existe, `allAnalysis` usa `precomputedAnalysis` en lugar de `analyzeElasticity`.
+### Bodesa (segundo cliente) — datos directo de S3 vía `backend/`
+Mismo patrón que el proyecto Cascaron (`backend/main.py` + `pipeline_*.py`), en Node: **nada de Bodesa vive en local ni en git**.
+```bash
+cd backend && npm install && npm start   # (o run.bat) API en http://127.0.0.1:8011; Vite redirige /api ahí
+npm run bodesa                            # forzar el cálculo una vez desde S3, sin levantar el servidor
+```
+- Credenciales en `backend/.env` (copia de `.env.example`, gitignored; mismas llaves que Cascaron). Si están vacías usa el perfil de AWS CLI.
+- `backend/bodesa/pipeline.js` baja de `s3://data-bunker-prod-env/derivables/bodesa/`: `client/Client.csv`, el `sell_in_sell_out/Sales_Data_Layout_Bodesa*.csv` más reciente (20 meses, 740 SKUs — el `Lay_Out_..._enero-febrero_2025.csv` de 2 meses no se usa) y los últimos 3 `competitors/bodesa_YYYY-MM-DD.csv`. Escribe el caché en `backend/data/bodesa/` (gitignored) con `meta.json` (archivos usados, `fuente_s3`).
+- `backend/server.js`: `GET /api/bodesa/{data,competitor}.json` (503 mientras genera por primera vez; la app reintenta sola), `GET /api/bodesa/version`, `POST /api/bodesa/refresh`. Cada `CHECK_MIN` (30) minutos compara el `LastModified` de S3 con `meta.fuente_s3` y recalcula si hay algo nuevo; si falla, sigue sirviendo el último dataset válido.
+- La app elige cliente por URL: `http://localhost:5174/?cliente=bodesa` pide `/api/bodesa/`; sin parámetro carga FESA desde `public/`.
+- La elasticidad de Bodesa se calcula **en el backend** (`backend/bodesa/calculo.js`, módulo puro que recibe el texto de los CSV), no en la app: log-log con efectos fijos de SKU y de mes×departamento (la venta es muy estacional y los 3 métodos de la app no lo controlan). Sale `segmentElasticity` por depto y `product.estimate` por SKU (shrinkage hacia el depto). Si `data.segmentElasticity` existe, `allAnalysis` usa `precomputedAnalysis` en lugar de `analyzeElasticity`.
 - Ventas vienen sin IVA (`IVA_FACTOR_VENTAS`), sin costo (`MARGEN_POR_DEPTO`, vacío por default). El cruce con competencia es por EAN sin dígito verificador (`EAN WM` ↔ `upc wm`).
 
 App (desde `app/`):
@@ -55,7 +61,7 @@ fesa_2026-04-17.csv ──preprocess_competitor.js→ competitor.json ─┘
 - **`preprocess_competitor.js`** agrupa precios de competidores por **UPC normalizado**, deduplicando por canal (se queda con el precio más bajo por canal). Salida: mapa `upc → { competitors[], minPrice, avgPrice, maxPrice, image }`.
 
 ### La llave de unión es el UPC normalizado
-El join entre ventas y competencia se hace por UPC. La función `normUpc` (quita todo lo no-dígito y ceros a la izquierda) está **duplicada idénticamente** en `preprocess_competitor.js`, `preprocess_bodesa.js` y `App.jsx` (que la usa también en el matcheo de subida de CSV). Si modificas la normalización, cámbiala en todos o el join se rompe silenciosamente.
+El join entre ventas y competencia se hace por UPC. La función `normUpc` (quita todo lo no-dígito y ceros a la izquierda) está **duplicada idénticamente** en `preprocess_competitor.js`, `backend/bodesa/calculo.js` y `App.jsx` (que la usa también en el matcheo de subida de CSV). Si modificas la normalización, cámbiala en todos o el join se rompe silenciosamente.
 
 ## Motor de cálculo — `app/src/elasticity.js`
 

@@ -10,3 +10,7 @@ layout-agent.xlsx
 .claude/settings.local.json
 
 node_modules/
+
+# Backend: credenciales y caché de datos de clientes (se regenera desde S3)
+backend/.env
+backend/data/

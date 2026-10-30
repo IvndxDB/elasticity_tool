@@ -18,9 +18,10 @@ const C = {
 // Paleta categórica de las gráficas (misma que Pricing L'Oréal), como variables CSS para que cambie con el tema
 const METHOD_COLORS = { ols: "var(--elc-own)", loglog: "var(--elc-5)", arc: "var(--elc-1)", sku_fe: "var(--elc-2)", segment: "var(--elc-6)" };
 
-/* ── Cliente: ?cliente=bodesa carga /bodesa/*.json; sin parámetro, los datos de FESA en /public ── */
+/* ── Cliente: ?cliente=bodesa pide sus datos a la API (backend/, que los baja de S3); sin parámetro, FESA desde /public ── */
 const CLIENT = (new URLSearchParams(window.location.search).get("cliente") || "").replace(/[^a-z0-9_-]/gi, "");
-const DATA_BASE = CLIENT ? `/${CLIENT}/` : "/";
+const DATA_BASE = CLIENT ? `/api/${CLIENT}/` : "/";
+const REINTENTO_MS = 10000; // la API responde 503 mientras genera el dataset por primera vez
 
 /* ── Escenarios de precios: cada uno es un override de las reglas globales ── */
 const SCENARIOS = {
@@ -425,9 +426,9 @@ class ErrBoundary extends Component {
   }
 }
 
-function Spinner() {
+function Spinner({ msg }) {
   return (
-    <div className="sp-msg" aria-busy="true"><span className="sp-spin" />Cargando datos…</div>
+    <div className="sp-msg" aria-busy="true"><span className="sp-spin" />{msg || "Cargando datos…"}</div>
   );
 }
 
@@ -436,6 +437,8 @@ export default function App() {
   const [data, setData] = useState(null);
   const [competitor, setCompetitor] = useState({});
   const [loading, setLoading] = useState(true);
+  const [loadMsg, setLoadMsg] = useState(null); // aviso mientras la API genera los datos desde S3
+  const [loadError, setLoadError] = useState(null);
   const [tab, setTab] = useState("portfolio");
   const [adminSection, setAdminSection] = useState("rules"); // sub-sección dentro del tab "Administración": rules | audit
   const [detailSku, setDetailSku] = useState(null); // SKU cuyo popup de análisis de elasticidad está abierto
@@ -476,16 +479,30 @@ export default function App() {
   const PAGE_SIZE = 20;
 
   useEffect(() => {
-    Promise.all([
-      fetch(`${DATA_BASE}data.json`).then(r => r.json()),
-      fetch(`${DATA_BASE}competitor.json`).then(r => r.ok ? r.json() : {}).catch(() => ({})),
-    ])
-      .then(([d, comp]) => {
+    let vivo = true;
+    let espera = null;
+    const cargar = async () => {
+      try {
+        const r = await fetch(`${DATA_BASE}data.json`);
+        if (r.status === 503) { // la API está bajando los datos de S3: se reintenta solo
+          const b = await r.json().catch(() => ({}));
+          if (vivo) { setLoadMsg(b.detail || "Generando los datos desde S3…"); espera = setTimeout(cargar, REINTENTO_MS); }
+          return;
+        }
+        if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+        const d = await r.json();
+        const comp = await fetch(`${DATA_BASE}competitor.json`).then(x => x.ok ? x.json() : {}).catch(() => ({}));
+        if (!vivo) return;
         setData(d);
         setCompetitor(comp || {});
         setLoading(false);
-      })
-      .catch(err => { console.error(err); setLoading(false); });
+      } catch (err) {
+        console.error(err);
+        if (vivo) { setLoadError(CLIENT ? `No se pudo conectar con la API de datos (${err.message}). ¿Está corriendo backend/ (npm start)?` : null); setLoading(false); }
+      }
+    };
+    cargar();
+    return () => { vivo = false; clearTimeout(espera); };
   }, []);
 
   // Lookup de competencia por SKU (via UPC normalizado)
@@ -856,8 +873,8 @@ export default function App() {
     </div>
   );
 
-  if (loading) return marco(<Spinner />);
-  if (!data) return marco(<div className="sp-msg" role="alert" style={{ color: C.red }}>Error cargando datos</div>);
+  if (loading) return marco(<Spinner msg={loadMsg} />);
+  if (!data) return marco(<div className="sp-msg" role="alert" style={{ color: C.red }}>{loadError || "Error cargando datos"}</div>);
 
   const tabs = [
     { id: "portfolio", label: "Sugerencia de Precios" },
