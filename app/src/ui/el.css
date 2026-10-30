@@ -157,7 +157,76 @@ body { background: #ffffff; min-height: 100vh; -webkit-font-smoothing: antialias
 /* Código en línea dentro de notas */
 .sp.db-ui code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: .95em; color: var(--db-ink); }
 
+/* KPIs en un renglón con flip (.lp-flip de loreal.css); el reverso lista el desglose */
+.sp.db-ui .el-flips { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.sp.db-ui .el-flip { cursor: pointer; }
+.sp.db-ui .el-flip .el-kpi { height: 100%; }
+.sp.db-ui .el-flip .el-kpi em { padding-right: 18px; }
+.sp.db-ui .el-flip .lp-back-l { margin-top: 4px; gap: 3px; font-size: 11.5px; }
+.sp.db-ui .el-flip .lp-back-l strong { color: var(--db-ink); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sp.db-ui .el-flip .lp-back-l strong.el-t-pos, .sp.db-ui .el-t-pos { color: var(--db-pos); }
+.sp.db-ui .el-flip .lp-back-l strong.el-t-neg, .sp.db-ui .el-t-neg { color: var(--db-neg); }
+.sp.db-ui .el-flip .lp-back-l strong.el-t-warn, .sp.db-ui .el-t-warn { color: var(--db-warn); }
+
+/* Selector de cadena (Bodesa: El Bodegón / La Marina), a la derecha de las secciones */
+.sp.db-ui .el-chain { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.sp.db-ui .el-chain > span { font-family: var(--db-font-display); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--db-ink-2); }
+
+/* Reglas: selector de alcance (global / categoría) */
+.sp.db-ui .el-scope { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 18px; padding: 14px 18px; margin-bottom: 14px; }
+.sp.db-ui .el-scope-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; font-size: 12px; color: var(--db-ink-2); }
+.sp.db-ui .el-scope-list .el-btn.on { border-color: color-mix(in srgb, var(--db-accent) 55%, transparent); color: var(--db-accent-ink); }
+
+/* Cascada: lectura en lenguaje llano + ejemplo desplegable */
+.sp.db-ui .el-story { margin-top: 10px; padding: 10px 14px; border-radius: var(--db-r-sm); background: var(--db-track-bg); font-size: 13px; line-height: 1.55; color: var(--db-ink); }
+.sp.db-ui .el-story p { margin: 0; }
+.sp.db-ui .el-story ul { margin: 6px 0 0; padding-left: 18px; }
+.sp.db-ui .el-story li { margin: 2px 0; }
+.sp.db-ui .el-how { margin-top: 8px; font-size: 12px; line-height: 1.55; color: var(--db-ink-2); }
+.sp.db-ui .el-how summary { cursor: pointer; color: var(--db-accent-ink); font-weight: 600; padding: 4px 0; }
+.sp.db-ui .el-how summary:focus-visible { outline: 2px solid var(--db-ring); outline-offset: 2px; border-radius: 4px; }
+.sp.db-ui .el-how p { margin: 6px 0; }
+.sp.db-ui .el-how ul { margin: 4px 0; padding-left: 18px; }
+.sp.db-ui .el-how b { color: var(--db-ink); }
+
+/* Piezas de Performance y Configuración */
+.sp.db-ui .el-pad { padding: 16px 18px; min-width: 0; }
+.sp.db-ui .el-h4 { margin: 0 0 10px; font-family: var(--db-font-display); font-weight: 500; font-size: 16px; color: var(--db-ink); }
+.sp.db-ui .el-note { margin: 8px 0 0; font-size: 12px; line-height: 1.55; color: var(--db-ink-2); }
+.sp.db-ui .el-note b { color: var(--db-ink); font-weight: 600; }
+.sp.db-ui .el-empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--db-ink-3); }
+.sp.db-ui .el-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.sp.db-ui .el-perf-ctrl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 14px; }
+.sp.db-ui .el-perf-ctrl .el-note { margin: 0; flex: 1; min-width: 220px; }
+.sp.db-ui .el-btn-sm { padding: 7px 12px; font-size: 12px; cursor: pointer; }
+.sp.db-ui .el-leg { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px; font-size: 12px; color: var(--db-ink-2); }
+.sp.db-ui .el-leg span { display: inline-flex; align-items: center; gap: 6px; }
+.sp.db-ui .el-leg i { width: 10px; height: 10px; border-radius: 3px; }
+.sp.db-ui .el-map-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 16px; margin-bottom: 8px; }
+.sp.db-ui .el-focus { display: flex; align-items: center; gap: 12px; margin: 14px 0 10px; padding: 8px 12px; border-radius: var(--db-r-md, 12px);
+  background: var(--db-accent-soft); font-size: 12.5px; color: var(--db-ink); }
+.sp.db-ui .el-scn { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 12.5px; color: var(--db-ink-2); }
+.sp.db-ui .el-scn b { color: var(--db-ink); }
+.sp.db-ui .el-scn .el-btn { padding: 7px 12px; font-size: 12px; cursor: pointer; }
+.sp.db-ui .el-steps { margin: 0 0 12px; padding-left: 20px; font-size: 12px; line-height: 1.7; color: var(--db-ink-2); }
+.sp.db-ui .el-steps code { background: var(--db-track-bg); padding: 1px 6px; border-radius: 4px; }
+
+/* Tabla compacta de Performance: filas clicables que abren el análisis del producto */
+.sp.db-ui .el-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sp.db-ui .el-tbl th { padding: 8px 6px; text-align: right; font-size: 10px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
+.sp.db-ui .el-tbl td { padding: 7px 6px; text-align: right; white-space: nowrap; border-top: 1px solid var(--db-hair); }
+.sp.db-ui .el-tbl th:first-child, .sp.db-ui .el-tbl td:first-child { text-align: left; }
+.sp.db-ui .el-tbl tbody tr { cursor: pointer; }
+.sp.db-ui .el-tbl tbody tr:focus-visible { outline: 2px solid var(--db-ring); outline-offset: -2px; }
+.sp.db-ui .el-prod { max-width: 240px; white-space: normal !important; }
+.sp.db-ui .el-prod b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp.db-ui .el-prod small { font-size: 10.5px; color: var(--db-ink-3); }
+
+@media (max-width: 1200px) { .sp.db-ui .el-flips { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .sp.db-ui .el-grid2 { grid-template-columns: minmax(0, 1fr); } }
+
 @media (max-width: 640px) {
+  .sp.db-ui .el-flips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .el-shell { padding: 8px 8px 16px; }
   .el-tabs .sp-pills button { padding: 8px 12px; font-size: 12.5px; }
 }

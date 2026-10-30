@@ -2,8 +2,9 @@ import { useState, useMemo, useEffect, useCallback, Component } from "react";
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  Legend, ComposedChart, Area, ScatterChart, Scatter, Cell, LabelList,
+  Legend, ComposedChart, Area, ScatterChart, Scatter, Cell, LabelList, ReferenceLine, ReferenceArea, ZAxis,
 } from "recharts";
+import Papa from "papaparse";
 import { analyzeElasticity, suggestPrice, sanitizeElasticity } from "./elasticity";
 import { Buscador, CURVA, Filtros, Pills, Sel, Sprint, TemaBoton, brillo, useTemaAnimado } from "./ui/shell";
 
@@ -53,6 +54,22 @@ const SCENARIOS = {
 };
 
 /* ── Helpers ── */
+const fmtInt = (n) => Math.round(n).toLocaleString("es-MX");
+const fmtMoney = (n, signed = false) => `${n < 0 ? "−" : signed && n > 0 ? "+" : ""}$${Math.abs(Math.round(n)).toLocaleString("es-MX")}`;
+const fmtPrice = (n) => `$${(n || 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtPct = (x, d = 1, signed = false) => x === null || !isFinite(x) ? "—" : `${signed && x > 0 ? "+" : ""}${x.toFixed(d)}%`;
+const fmtCompact = (n) => `${n < 0 ? "−" : ""}$${new Intl.NumberFormat("es-MX", { notation: "compact", maximumFractionDigits: 1 }).format(Math.abs(n))}`;
+const fmtMonth = (m) => { const [y, mo] = m.split("-").map(Number); return new Date(y, mo - 1, 1).toLocaleDateString("es-MX", { month: "short", year: "numeric" }).replace(".", ""); };
+const fmtRange = (ms) => ms.length === 1 ? fmtMonth(ms[0]) : `${fmtMonth(ms[0])} – ${fmtMonth(ms[ms.length - 1])}`;
+
+function downloadCSV(rows, filename) {
+  const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 function normUpc(u) {
   if (!u) return "";
   return String(u).replace(/\D/g, "").replace(/^0+/, "");
@@ -312,6 +329,33 @@ function StatCard({ label, value, sub, accent }) {
   );
 }
 
+// KPI que gira al hacer clic (patrón .lp-flip de Pricing L'Oréal): frente = cifra principal, reverso = desglose.
+// back: [{ k, v, tone? }] con tone = "pos" | "neg" | "warn"; tone de la tarjeta = "acc" | "pos" | "neg" | "warn"
+function FlipCard({ label, value, sub, tone, back, backTitle }) {
+  const [on, setOn] = useState(false);
+  const flip = () => setOn(v => !v);
+  return (
+    <div className={`lp-flip el-flip${on ? " on" : ""}`} role="button" tabIndex={0} aria-pressed={on}
+      title={on ? "Clic para volver a la cifra" : "Clic para ver el desglose"}
+      onClick={flip} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } }}>
+      <div className="lp-flip-in">
+        <div className={`el-kpi lp-flip-f${tone ? ` ${tone}` : ""}`} aria-hidden={on}>
+          <small>{label}</small>
+          <b>{value}</b>
+          {sub && <em>{sub}</em>}
+          <span className="lp-flip-hint" aria-hidden="true">↻</span>
+        </div>
+        <div className={`el-kpi lp-flip-b${tone ? ` ${tone}` : ""}`} aria-hidden={!on}>
+          <small>{backTitle || label}</small>
+          <ul className="lp-back-l">
+            {back.map(r => <li key={r.k}><span>{r.k}</span><strong className={r.tone ? `el-t-${r.tone}` : undefined}>{r.v}</strong></li>)}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Encabezado de sección: raya de acento + título Oswald (como .lp-eyebrow / .lp-card h3)
 function SectionHead({ children }) {
   return <div className="el-sec"><h3>{children}</h3></div>;
@@ -331,6 +375,60 @@ function ChartTip({ active, payload, label }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Tooltips de Performance: dinero sin decimales, % con signo, y burbuja con sus tres medidas
+function MoneyTip({ active, payload, label, signed }) {
+  if (!active || !payload?.length) return null;
+  const e = payload[0];
+  return <div className="el-tip"><div className="el-tip-t">{label ?? e.payload.name}</div>{fmtMoney(e.value, signed)}</div>;
+}
+
+// Etiqueta al final de una barra horizontal: a la derecha si es positiva, a la izquierda si es negativa
+const barEndLabel = (fmt) => function BarEndLabel({ x, y, width, height, value }) {
+  const neg = value < 0;
+  const left = Math.min(x, x + width), right = Math.max(x, x + width);
+  return (
+    <text x={neg ? left - 6 : right + 6} y={y + height / 2} dy="0.35em" textAnchor={neg ? "end" : "start"}
+      style={{ fontSize: 11, fill: "var(--db-ink-2)", fontVariantNumeric: "tabular-nums" }}>
+      {fmt(value)}
+    </text>
+  );
+};
+
+function WaterfallTip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const w = payload[0].payload;
+  return (
+    <div className="el-tip">
+      <div className="el-tip-t">{w.full ? `${w.name} · ${w.full}` : w.name}</div>
+      {w.total ? <>Venta: <b>{fmtMoney(w.v)}</b></> : <>{w.v >= 0 ? "Sumó" : "Restó"}: <b className={`el-t-${w.v >= 0 ? "pos" : "neg"}`}>{fmtMoney(w.v, true)}</b></>}
+    </div>
+  );
+}
+
+function GroupTip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const g = payload[0].payload;
+  return (
+    <div className="el-tip">
+      <div className="el-tip-t">{g.name}</div>
+      <div>Crecimiento: <b>{fmtPct(g.deltaPct, 1, true)}</b></div>
+      <div>Venta: {fmtMoney(g.r1)} · antes {fmtMoney(g.r0)}</div>
+    </div>
+  );
+}
+
+function BubbleTip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const b = payload[0].payload;
+  return (
+    <div className="el-tip">
+      <div className="el-tip-t">{b.name}</div>
+      <div>Δ precio: <b>{fmtPct(b.x, 1, true)}</b> · Δ unidades: <b>{fmtPct(b.y, 1, true)}</b></div>
+      <div>Venta: {fmtMoney(b.z)} ({fmtPct(b.deltaPct, 1, true)}) · {fmtInt(b.n)} SKUs</div>
     </div>
   );
 }
@@ -383,13 +481,14 @@ function SortHeader({ label, sortKey, sortConfig, setSortConfig, align = "center
     <th
       onClick={handleClick}
       style={{
-        padding: "10px 6px", textAlign: align, color: C.sub, fontWeight: 600,
-        fontSize: 9, textTransform: "uppercase", whiteSpace: "nowrap",
+        padding: "10px 8px", textAlign: align, color: C.sub, fontWeight: 600,
+        fontSize: 9.5, lineHeight: 1.3, textTransform: "uppercase", whiteSpace: "normal", verticalAlign: "bottom",
         cursor: sortKey ? "pointer" : "default", userSelect: "none",
-        width: w, minWidth: 50, position: "relative",
+        width: w, minWidth: 50, position: "relative", overflowWrap: "normal",
       }}
     >
-      {label} {sortKey && <span style={{ opacity: isActive ? 1 : 0.3, marginLeft: 2 }}>{arrow}</span>}
+      {/* El título puede partirse en dos renglones; la flecha de orden siempre va pegada a la última palabra */}
+      {label}{sortKey && <span style={{ opacity: isActive ? 1 : 0.3, marginLeft: 3, whiteSpace: "nowrap" }}>{arrow}</span>}
       {widthKey && typeof setWidths === "function" && (
         <span
           onMouseDown={startResize}
@@ -439,8 +538,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadMsg, setLoadMsg] = useState(null); // aviso mientras la API genera los datos desde S3
   const [loadError, setLoadError] = useState(null);
-  const [tab, setTab] = useState("portfolio");
-  const [adminSection, setAdminSection] = useState("rules"); // sub-sección dentro del tab "Administración": rules | audit
+  const [tab, setTab] = useState("performance");
+  const [adminSection, setAdminSection] = useState("scenario"); // sub-sección dentro del tab "Configuración": scenario | rules | families | audit
+  const [perfWindow, setPerfWindow] = useState("q"); // Performance: m | q | s | yoy (ver perfWindows)
+  const [perfDim, setPerfDim] = useState("category"); // Performance: agrupación del mapa de burbujas (brand | category | department)
+  const [perfFocus, setPerfFocus] = useState(null); // Performance: grupo elegido en el mapa, filtra las tablas
+  const [perfBridge, setPerfBridge] = useState("pv"); // Performance: cascada por precio/volumen ("pv") o por departamento ("group")
   const [detailSku, setDetailSku] = useState(null); // SKU cuyo popup de análisis de elasticidad está abierto
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDept, setFilterDept] = useState("all");
@@ -452,7 +555,11 @@ export default function App() {
   const [uploadError, setUploadError] = useState("");
   const [uploadInfo, setUploadInfo] = useState(null); // { matched, notFound, total }
   const [portfolioSort, setPortfolioSort] = useState({ key: null, dir: "asc" });
-  const [portfolioWidths, setPortfolioWidths] = useState({});
+  // Ancho inicial por columna del Portafolio (px); el usuario los ajusta arrastrando el borde del encabezado
+  const [portfolioWidths, setPortfolioWidths] = useState({
+    img: 48, sku: 84, upc: 112, prod: 230, cat: 120, abc: 58, sub: 136, pa: 92, marg: 72, elas: 84, met: 128, conf: 100,
+    ps: 108, ch: 80, nm: 82, cm: 84, ua: 82, up: 94, va: 104, vp: 112, pf: 98, dec: 88,
+  });
   const [subSort, setSubSort] = useState({ key: "revenue", dir: "desc" });
   const [auditLog, setAuditLog] = useState([]); // [{ ts, user, action, sku, family, detail, before, after }]
   const [currentUser, setCurrentUser] = useState(() => {
@@ -464,6 +571,13 @@ export default function App() {
   // Reglas de negocio específicas por familia (sobreescriben las globales cuando se activan)
   // { familyName: { maxPctChange, minMarginPct, maxMarginPct, minPriceFloor, maxPriceCeiling, priceAboveCompMin, roundingMode } }
   const [familyBusinessRules, setFamilyBusinessRules] = useState({});
+  // Precio fijo por familia { familyName: price }: lo define el usuario y se aplica igual a todos los SKUs de la
+  // familia, como un override manual (no pasa por reglas). Sin precio fijo, la familia usa el sugerido por elasticidad.
+  const [familyPrices, setFamilyPrices] = useState({});
+  // Reglas por categoría { category: { maxPctChange, ... } }: solo las llaves definidas sobreescriben a las globales.
+  // Precedencia: familia > categoría > escenario > global
+  const [categoryRules, setCategoryRules] = useState({});
+  const [ruleScope, setRuleScope] = useState("global"); // "global" o el nombre de la categoría que se está editando
   const [familyUploadMsg, setFamilyUploadMsg] = useState("");
   const [clusterPopup, setClusterPopup] = useState(null); // { key, abc, sub, products: [...] }
   const [ruleBuilderOpen, setRuleBuilderOpen] = useState(false);
@@ -475,6 +589,7 @@ export default function App() {
     maxPriceCeiling: null,   // Precio techo absoluto en $
     priceAboveCompMin: null, // Cuánto % mínimo el sugerido debe estar sobre/bajo el min de competencia
     roundingMode: "none",    // "none" | "integer" | "ending_99" | "ending_95" | "nearest_5"
+    lowConfidence: "hold",   // "hold" = mantener precio actual si el modelo no es confiable | "suggest" = sugerir de todos modos
   });
   const PAGE_SIZE = 20;
 
@@ -615,6 +730,19 @@ export default function App() {
     (cls === "all" || p.fesa_classification === cls), []);
   const categories = useMemo(() => data ? [...new Set(data.products.filter(p => matchesFilters(p, filterDept, "all", "all")).map(p => p.category).filter(Boolean))].sort() : [], [data, filterDept, matchesFilters]);
   const classifications = useMemo(() => data ? [...new Set(data.products.filter(p => matchesFilters(p, filterDept, filterCat, "all")).map(p => p.fesa_classification).filter(Boolean))].sort() : [], [data, filterDept, filterCat, matchesFilters]);
+  // Si el dataset nombra su clasificación (Bodesa: "Cadena" = El Bodegón / La Marina), se vuelve selector principal
+  const allCategories = useMemo(() => data ? [...new Set(data.products.map(p => p.category).filter(Boolean))].sort() : [], [data]);
+  const chainLabel = data?.classificationLabel || null;
+  const chains = useMemo(() => chainLabel ? [...new Set(data.products.map(p => p.fesa_classification).filter(Boolean))].sort() : [], [data, chainLabel]);
+  const changeChain = (cls) => {
+    setFilterClass(cls);
+    if (cls !== "all") { // con una sola cadena, agrupar por cadena ya no explica nada
+      setPerfDim(d => (d === "chain" ? "category" : d));
+      setPerfBridge(b => (b === "chain" ? "pv" : b));
+      setPerfFocus(null);
+    }
+    if (cls !== "all" && !data.products.some(p => matchesFilters(p, filterDept, filterCat, cls))) { setFilterDept("all"); setFilterCat("all"); }
+  };
 
   // Al cambiar un filtro de arriba, los de abajo vuelven a "todos" si ya no tienen productos
   const changeDept = (dept) => {
@@ -672,15 +800,23 @@ export default function App() {
         sug = best ? suggestPrice(currentPrice, best.elasticity, currentMargin) : null;
       }
       const autoSuggestedRaw = sug?.suggestedPrice ?? currentPrice;
-      const override = overrides[p.sku];
+      // El override manual del SKU gana; si no hay, el precio fijo de su familia
+      const famPrice = fam ? familyPrices[fam] : undefined;
+      const usesFamPrice = !isFinite(overrides[p.sku]) && isFinite(famPrice);
+      const override = usesFamPrice ? famPrice : overrides[p.sku];
       const compMin = compBySku[p.sku]?.minPrice;
-      // Reglas efectivas: familia > escenario > globales
-      const effectiveRules = fam && familyBusinessRules[fam]
-        ? { ...effectiveGlobalRules, ...familyBusinessRules[fam] }
-        : effectiveGlobalRules;
+      // Reglas efectivas: familia > categoría > escenario > globales
+      const effectiveRules = {
+        ...effectiveGlobalRules,
+        ...(categoryRules[p.category] || {}),
+        ...(fam && familyBusinessRules[fam] ? familyBusinessRules[fam] : {}),
+      };
       const ruled = applyBusinessRules(autoSuggestedRaw, currentPrice, currentMargin, compMin, effectiveRules);
-      const autoSuggested = ruled.finalPrice;
       const confidence = best?.confidence || confidenceFromMape(best?.mape, best?.elasticity);
+      // Modelo no confiable (MAPE > 60% o sin señal): por defecto se mantiene el precio actual en lugar de
+      // sugerir un cambio que la propia herramienta marca como "no aplicar" (configurable en Reglas de negocio)
+      const holdLowConf = effectiveRules.lowConfidence !== "suggest" && confidence.reco === "reject";
+      const autoSuggested = holdLowConf ? currentPrice : ruled.finalPrice;
       const finalSuggested = isFinite(override) ? override : autoSuggested;
       const pctChange = currentPrice > 0 ? ((finalSuggested - currentPrice) / currentPrice) * 100 : 0;
       const elast = best?.elasticity ?? 0;
@@ -703,7 +839,9 @@ export default function App() {
         autoSuggestedPrice: autoSuggested,
         isOverridden: isFinite(override),
         pctChange: Math.round(pctChange * 100) / 100,
-        reason: sug?.reason ?? "",
+        reason: usesFamPrice ? `Precio fijo de familia "${fam}"`
+          : holdLowConf && !isFinite(override) ? "Modelo poco confiable: se mantiene el precio actual"
+          : (sug?.reason ?? ""),
         predUnits: Math.round(predUnits),
         newMargin,
         currentRevenue,
@@ -721,7 +859,7 @@ export default function App() {
         revenue: currentRevenue,
       };
     });
-  }, [data, filtered, allAnalysis, overrides, familyRules, familySuggest, compBySku, effectiveGlobalRules, familyBusinessRules, approvals]);
+  }, [data, filtered, allAnalysis, overrides, familyRules, familySuggest, familyPrices, compBySku, effectiveGlobalRules, categoryRules, familyBusinessRules, approvals]);
 
   const downloadPortfolioCSV = useCallback(() => {
     const rows = [["SKU", "UPC", "Descripcion", "Departamento", "Categoria", "Clasificacion", "Brand", "Precio Actual", "Margen Actual %", "Elasticidad", "Metodo", "MAPE%", "Precio Sugerido", "Precio Override Manual", "Cambio%", "Nuevo Margen %", "Unidades Ultimo Mes", "Unidades Proyectadas", "Venta Actual", "Venta Proyectada", "Decision", "Razon"]];
@@ -820,6 +958,104 @@ export default function App() {
     return { map: labelMap, groups, productsByCluster, rows };
   }, [data, portfolioData]);
 
+  // Performance de ventas: ventanas de comparación que permite el histórico (meses contiguos de data.months)
+  const perfWindows = useMemo(() => {
+    const months = data?.months || [];
+    const n = months.length;
+    const opts = [];
+    if (n >= 2) opts.push({ v: "m", t: "Mes vs mes anterior", cur: months.slice(-1), prev: months.slice(-2, -1) });
+    if (n >= 6) opts.push({ v: "q", t: "3 meses vs 3 anteriores", cur: months.slice(-3), prev: months.slice(-6, -3) });
+    if (n >= 12) opts.push({ v: "s", t: "6 meses vs 6 anteriores", cur: months.slice(-6), prev: months.slice(-12, -6) });
+    const yoyPrev = months.slice(-3).map(m => `${Number(m.slice(0, 4)) - 1}${m.slice(4)}`);
+    if (n >= 3 && yoyPrev.every(m => months.includes(m))) opts.push({ v: "yoy", t: "Año contra año (3 meses)", cur: months.slice(-3), prev: yoyPrev });
+    return opts;
+  }, [data]);
+  const perfWin = perfWindows.find(o => o.v === perfWindow) || perfWindows.find(o => o.v === "q") || perfWindows[0] || null;
+
+  // Por SKU filtrado: venta (unidades × precio del mes, mismo criterio que currentRevenue) en ambas ventanas y el
+  // puente sin término cruzado: (P1−P0)·Q1 [efecto precio] + P0·(Q1−Q0) [efecto volumen] = R1 − R0.
+  const perf = useMemo(() => {
+    if (!data || !perfWin) return null;
+    const cur = new Set(perfWin.cur), prev = new Set(perfWin.prev);
+    const byMonth = Object.fromEntries(data.months.map(m => [m, 0]));
+    const rows = [];
+    for (const p of filtered) {
+      let r1 = 0, q1 = 0, r0 = 0, q0 = 0;
+      for (const s of p.series) {
+        const rev = s.units * s.price;
+        if (s.month in byMonth) byMonth[s.month] += rev;
+        if (cur.has(s.month)) { r1 += rev; q1 += s.units; } else if (prev.has(s.month)) { r0 += rev; q0 += s.units; }
+      }
+      if (r0 <= 0 && r1 <= 0) continue;
+      const status = r0 <= 0 ? "new" : r1 <= 0 ? "lost" : "both";
+      const p1 = q1 > 0 ? r1 / q1 : null, p0 = q0 > 0 ? r0 / q0 : null;
+      const both = status === "both" && p1 !== null && p0 !== null;
+      rows.push({
+        sku: p.sku, sku_des: p.sku_des || p.sku, department: p.department, category: p.category, brand: p.brand, chain: p.fesa_classification,
+        r1, r0, q1, q0, p1, p0, status,
+        delta: r1 - r0,
+        deltaPct: r0 > 0 ? ((r1 - r0) / r0) * 100 : null,
+        pricePct: both ? ((p1 - p0) / p0) * 100 : null,
+        unitsPct: both ? ((q1 - q0) / q0) * 100 : null,
+        priceEff: both ? (p1 - p0) * q1 : 0,
+        volEff: both ? p0 * (q1 - q0) : 0,
+        quad: both ? `${p1 >= p0 ? "pu" : "pd"}${q1 >= q0 ? "vu" : "vd"}` : null,
+      });
+    }
+    const sum = (arr, k) => arr.reduce((s, r) => s + r[k], 0);
+    const R1 = sum(rows, "r1"), R0 = sum(rows, "r0"), Q1 = sum(rows, "q1"), Q0 = sum(rows, "q0");
+    const newRows = rows.filter(r => r.status === "new"), lostRows = rows.filter(r => r.status === "lost");
+    const bridge = {
+      price: sum(rows, "priceEff"), volume: sum(rows, "volEff"),
+      added: sum(newRows, "r1"), lost: -sum(lostRows, "r0"),
+    };
+    // Concentración del periodo actual
+    const ranked = rows.filter(r => r.r1 > 0).sort((a, b) => b.r1 - a.r1);
+    let acc = 0, n80 = 0;
+    for (const r of ranked) { if (acc >= 0.8 * R1) break; acc += r.r1; n80++; }
+    const top10 = ranked.slice(0, 10).reduce((s, r) => s + r.r1, 0);
+    // Por departamento, o por categoría si ya hay un departamento elegido
+    const groupKey = filterDept === "all" ? "department" : "category";
+    const groupsMap = {};
+    for (const r of rows) {
+      const g = r[groupKey] || "Sin clasificar";
+      if (!groupsMap[g]) groupsMap[g] = { name: g, r1: 0, r0: 0 };
+      groupsMap[g].r1 += r.r1; groupsMap[g].r0 += r.r0;
+    }
+    const groups = Object.values(groupsMap)
+      .map(g => ({ ...g, delta: g.r1 - g.r0, deltaPct: g.r0 > 0 ? ((g.r1 - g.r0) / g.r0) * 100 : null }))
+      .filter(g => g.deltaPct !== null)
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 12)
+      .sort((a, b) => b.deltaPct - a.deltaPct);
+    // Mapa precio-volumen: por grupo, Δ precio y Δ unidades medidos solo con SKUs que vendieron en ambos periodos
+    // (los nuevos o sin venta moverían el promedio por mezcla, no por precio); tamaño = venta del periodo actual
+    const bubbleMap = {};
+    for (const r of rows) {
+      const g = r[perfDim] || "Sin clasificar";
+      if (!bubbleMap[g]) bubbleMap[g] = { name: g, r1: 0, r0: 0, br1: 0, bq1: 0, br0: 0, bq0: 0, n: 0 };
+      const b = bubbleMap[g];
+      b.r1 += r.r1; b.r0 += r.r0; b.n++;
+      if (r.quad) { b.br1 += r.r1; b.bq1 += r.q1; b.br0 += r.r0; b.bq0 += r.q0; }
+    }
+    const bubbles = Object.values(bubbleMap)
+      .filter(b => b.bq0 > 0 && b.bq1 > 0)
+      .map(b => ({
+        name: b.name, z: b.r1, n: b.n,
+        x: ((b.br1 / b.bq1) / (b.br0 / b.bq0) - 1) * 100,
+        y: (b.bq1 / b.bq0 - 1) * 100,
+        deltaPct: b.r0 > 0 ? ((b.r1 - b.r0) / b.r0) * 100 : null,
+      }))
+      .sort((a, b) => b.z - a.z).slice(0, 30);
+    const trend = data.months.map(m => ({ month: m, label: fmtMonth(m), venta: byMonth[m], zone: cur.has(m) ? "cur" : prev.has(m) ? "prev" : "" }));
+    return {
+      rows, R1, R0, Q1, Q0, bridge, trend, groups, groupKey, bubbles,
+      growing: rows.filter(r => r.status === "both" && r.delta > 0).length,
+      falling: rows.filter(r => r.status === "both" && r.delta < 0).length,
+      added: newRows.length, lostN: lostRows.length,
+      top10Share: R1 > 0 ? (top10 / R1) * 100 : 0, n80, nSelling: ranked.length,
+    };
+  }, [data, filtered, perfWin, filterDept, perfDim]);
+
   // Helper para registrar eventos en el log de auditoría
   const logAudit = useCallback((entry) => {
     setAuditLog(prev => [{
@@ -876,10 +1112,12 @@ export default function App() {
   if (loading) return marco(<Spinner msg={loadMsg} />);
   if (!data) return marco(<div className="sp-msg" role="alert" style={{ color: C.red }}>{loadError || "Error cargando datos"}</div>);
 
+  // Orden de la historia: qué está pasando → qué productos importan → qué precio poner; luego configuración y ayuda
   const tabs = [
-    { id: "portfolio", label: "Sugerencia de Precios" },
-    { id: "clusters", label: "Clusters" },
-    { id: "admin", label: "Administración" },
+    { id: "performance", label: "1 · Performance" },
+    { id: "clusters", label: "2 · Segmentación" },
+    { id: "portfolio", label: "3 · Sugerencia de precios" },
+    { id: "admin", label: "Configuración" },
     { id: "glossary", label: "Glosario" },
   ];
   const opcionesFiltro = (todas, lista) => [{ v: "all", t: todas }, ...lista.map(x => ({ v: x, t: x }))];
@@ -907,6 +1145,13 @@ export default function App() {
         {/* TABS */}
         <div className="el-tabs" style={{ marginBottom: 16 }}>
           <Pills label="Secciones" value={tab} onChange={setTab} options={tabs.map(t => ({ v: t.id, t: t.label }))} />
+          {chainLabel && (
+            <div className="el-chain">
+              <span>{chainLabel}</span>
+              <Pills label={chainLabel} value={filterClass} onChange={changeChain}
+                options={[{ v: "all", t: "Todas" }, ...chains.map(c => ({ v: c, t: c.toLowerCase().replace(/(^|\s)\S/g, s => s.toUpperCase()) }))]} />
+            </div>
+          )}
         </div>
 
         {/* FILTERS */}
@@ -915,9 +1160,301 @@ export default function App() {
             <Buscador etiqueta="Buscar" value={searchTerm} onChange={setSearchTerm} placeholder="SKU, EAN, nombre, brand…" aria="Buscar SKU, EAN, nombre o brand" />
             <Sel label="Departamento" value={filterDept} onChange={changeDept} options={opcionesFiltro("Todos los departamentos", departments)} />
             <Sel label="Categoría" value={filterCat} onChange={changeCat} options={opcionesFiltro("Todas las categorías", categories)} />
-            <Sel label="Clasificación" value={filterClass} onChange={setFilterClass} options={opcionesFiltro("Todas las clasificaciones", classifications)} />
+            {!chainLabel && <Sel label="Clasificación" value={filterClass} onChange={setFilterClass} options={opcionesFiltro("Todas las clasificaciones", classifications)} />}
           </Filtros>
         </div>
+
+        {/* ═══ 1 · PERFORMANCE DE VENTAS ═══ */}
+        {tab === "performance" && <ErrBoundary name="Performance">{(() => {
+          if (!perf || !perfWin) return <div className="el-card el-empty">Se necesitan al menos 2 meses de historia para comparar periodos.</div>;
+          const d = perf;
+          const dR = d.R1 - d.R0;
+          const dRPct = d.R0 > 0 ? (dR / d.R0) * 100 : null;
+          const dQPct = d.Q0 > 0 ? ((d.Q1 - d.Q0) / d.Q0) * 100 : null;
+          const P1 = d.Q1 > 0 ? d.R1 / d.Q1 : 0, P0 = d.Q0 > 0 ? d.R0 / d.Q0 : 0;
+          const dPPct = P0 > 0 ? ((P1 - P0) / P0) * 100 : null;
+          const tone = (x) => (x >= 0 ? "pos" : "neg");
+          const showChain = chainLabel && filterClass === "all";
+          const DIMS = [...(showChain ? [{ v: "chain", t: `${chainLabel}s` }] : []), { v: "brand", t: "Marcas" }, { v: "category", t: "Categorías" }, { v: "department", t: "Departamentos" }];
+          const dimLabel = { chain: (chainLabel || "").toLowerCase(), brand: "marca", category: "categoría", department: "departamento" }[perfDim];
+          const movers = d.rows.filter(r => !perfFocus || (r[perfDim] || "Sin clasificar") === perfFocus);
+          const top = (sign) => movers.filter(r => sign * r.delta > 0).sort((a, b) => sign * (b.delta - a.delta)).slice(0, 10);
+          // Cascada: venta anterior → aportaciones → venta actual. Las aportaciones suman exacto R1 − R0 en ambas vistas.
+          let steps;
+          if (perfBridge === "pv") {
+            // Nombres en lenguaje de negocio; los pasos en cero no se dibujan
+            steps = [
+              { name: "Cambio de precio", v: d.bridge.price },
+              { name: d.bridge.volume >= 0 ? "Más piezas" : "Menos piezas", v: d.bridge.volume },
+              { name: "Productos nuevos", v: d.bridge.added },
+              { name: "Productos que salieron", v: d.bridge.lost },
+            ].filter(s => Math.round(s.v) !== 0);
+          } else {
+            const keyOf = perfBridge === "group" ? (r) => r[d.groupKey] || "Sin clasificar"
+              : perfBridge === "chain" ? (r) => r.chain || "Sin clasificar"
+              : perfBridge === "brand" ? (r) => r.brand || "Sin marca"
+              : (r) => r.sku_des;
+            const byG = {};
+            for (const r of d.rows) { const g = keyOf(r); byG[g] = (byG[g] || 0) + r.delta; }
+            const sorted = Object.entries(byG).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+            steps = sorted.slice(0, 6).map(([name, v]) => ({ name, v }));
+            const rest = sorted.slice(6).reduce((s, [, v]) => s + v, 0);
+            if (sorted.length > 6) steps.push({ name: `Resto (${sorted.length - 6})`, v: rest });
+          }
+          let run = d.R0;
+          const waterfall = [{ name: "Antes", full: fmtRange(perfWin.prev), base: 0, h: d.R0, v: d.R0, total: true, lbl: fmtCompact(d.R0) }];
+          for (const s of steps) {
+            const end = run + s.v;
+            waterfall.push({ name: s.name, base: Math.min(run, end), h: Math.abs(s.v), v: s.v, lbl: `${s.v >= 0 ? "+" : ""}${fmtCompact(s.v)}` });
+            run = end;
+          }
+          waterfall.push({ name: "Ahora", full: fmtRange(perfWin.cur), base: 0, h: d.R1, v: d.R1, total: true, lbl: fmtCompact(d.R1) });
+
+          // Lectura en lenguaje llano de la cascada (para quien no lee gráficas de puente)
+          const story = (() => {
+            const head = <>La venta {dR >= 0 ? "subió" : "bajó"} de <b>{fmtCompact(d.R0)}</b> a <b>{fmtCompact(d.R1)}</b> ({fmtMoney(dR, true)}, {fmtPct(dRPct, 1, true)}).</>;
+            if (perfBridge === "pv") {
+              const b = d.bridge, items = [];
+              if (Math.round(b.volume)) items.push(<li key="v">{b.volume >= 0 ? "Vendimos más piezas" : "Vendimos menos piezas"}: eso {b.volume >= 0 ? "sumó" : "restó"} <b className={`el-t-${tone(b.volume)}`}>{fmtCompact(b.volume)}</b>.</li>);
+              if (Math.round(b.price)) items.push(<li key="p">Los precios {b.price >= 0 ? "subieron" : "bajaron"} y eso {b.price >= 0 ? "sumó" : "restó"} <b className={`el-t-${tone(b.price)}`}>{fmtCompact(b.price)}</b>.</li>);
+              if (Math.round(b.added)) items.push(<li key="n">{fmtInt(d.added)} productos nuevos aportaron <b className="el-t-pos">{fmtCompact(b.added)}</b>.</li>);
+              if (Math.round(b.lost)) items.push(<li key="l">{fmtInt(d.lostN)} productos que dejaron de venderse restaron <b className="el-t-neg">{fmtCompact(b.lost)}</b>.</li>);
+              return { head, items };
+            }
+            const ups = steps.filter(s => s.v > 0 && !s.name.startsWith("Resto")).slice(0, 2);
+            const downs = steps.filter(s => s.v < 0 && !s.name.startsWith("Resto")).slice(0, 2);
+            const items = [];
+            if (ups.length) items.push(<li key="u">Lo que más empujó: {ups.map((s, i) => <span key={s.name}>{i ? " y " : ""}<b>{s.name}</b> (<span className="el-t-pos">{fmtCompact(s.v)}</span>)</span>)}.</li>);
+            if (downs.length) items.push(<li key="d">Lo que más frenó: {downs.map((s, i) => <span key={s.name}>{i ? " y " : ""}<b>{s.name}</b> (<span className="el-t-neg">{fmtCompact(s.v)}</span>)</span>)}.</li>);
+            return { head, items };
+          })();
+          // El eje no empieza en cero (como toda cascada) para que se lean las aportaciones; los totales se recortan abajo
+          const levels = waterfall.flatMap(w => (w.total ? [w.v] : [w.base, w.base + w.h]));
+          const lo0 = Math.min(...levels), hi0 = Math.max(...levels);
+          const pad = (hi0 - lo0) * 0.35 || hi0 * 0.05;
+          const wfDomain = [Math.max(0, lo0 - pad), hi0 + pad * 0.4];
+          // Mapa: ejes simétricos acotados para que un outlier no aplaste al resto (los que se salen se dibujan en el borde)
+          const lim = (vals) => Math.min(60, Math.max(5, Math.ceil(Math.max(...vals.map(Math.abs), 1) * 1.15)));
+          const xm = lim(d.bubbles.map(b => b.x)), ym = lim(d.bubbles.map(b => b.y));
+          const clamp = (v, m) => Math.max(-m, Math.min(m, v));
+          const labeled = new Set(d.bubbles.slice(0, 8).map(b => b.name));
+          if (perfFocus) labeled.add(perfFocus);
+          const bubbles = d.bubbles.map(b => ({ ...b, px: clamp(b.x, xm), py: clamp(b.y, ym), label: labeled.has(b.name) ? b.name : "" }));
+          const pickBubble = (pt) => {
+            const name = pt?.payload?.name ?? pt?.name;
+            if (name) setPerfFocus(f => (f === name ? null : name));
+          };
+          const driver = (r) => {
+            if (r.status === "new") return <Badge color="blue">Nuevo</Badge>;
+            if (r.status === "lost") return <Badge color="red">Sin venta</Badge>;
+            return Math.abs(r.priceEff) >= Math.abs(r.volEff) ? <Badge color="amber">Precio</Badge> : <Badge color="blue">Volumen</Badge>;
+          };
+          const moversTable = (title, list, emptyMsg) => (
+            <div className="el-card el-pad">
+              <h4 className="el-h4">{title}</h4>
+              {list.length === 0 ? <div className="el-empty">{emptyMsg}</div> : (
+                <div style={{ overflowX: "auto" }}>
+                  <table className="el-tbl">
+                    <thead><tr><th>Producto</th><th>Venta</th><th>Δ venta</th><th>Δ %</th><th>Precio</th><th>Unidades</th><th>Motor</th></tr></thead>
+                    <tbody>
+                      {list.map(r => (
+                        <tr key={r.sku} tabIndex={0} title="Ver el análisis del producto" onClick={() => setDetailSku(r.sku)}
+                          onKeyDown={e => { if (e.key === "Enter") setDetailSku(r.sku); }}>
+                          <td className="el-prod"><b>{r.sku_des}</b><small>{r.sku} · {r.brand || r.category || "—"}</small></td>
+                          <td>{fmtMoney(r.r1)}</td>
+                          <td className={`el-t-${tone(r.delta)}`}>{fmtMoney(r.delta, true)}</td>
+                          <td>{fmtPct(r.deltaPct, 1, true)}</td>
+                          <td>{fmtPct(r.pricePct, 1, true)}</td>
+                          <td>{fmtPct(r.unitsPct, 1, true)}</td>
+                          <td>{driver(r)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+          return (
+            <div>
+              <SectionHead>Performance de Ventas</SectionHead>
+              <div className="el-perf-ctrl">
+                <Pills label="Periodo de comparación" value={perfWin.v} onChange={setPerfWindow} options={perfWindows.map(o => ({ v: o.v, t: o.t }))} />
+                <span className="el-note">Comparando <b>{fmtRange(perfWin.cur)}</b> contra <b>{fmtRange(perfWin.prev)}</b> · {fmtInt(d.rows.length)} productos con venta</span>
+                <button className="el-btn el-btn-sm" onClick={() => downloadCSV([
+                  ["SKU", "Descripcion", "Departamento", "Categoria", "Marca", "Venta actual", "Venta anterior", "Delta venta", "Delta %", "Precio prom. actual", "Precio prom. anterior", "Delta precio %", "Unidades actual", "Unidades anterior", "Delta unidades %", "Efecto precio", "Efecto volumen", "Estado"],
+                  ...[...d.rows].sort((a, b) => b.delta - a.delta).map(r => [r.sku, r.sku_des, r.department, r.category, r.brand, Math.round(r.r1), Math.round(r.r0), Math.round(r.delta),
+                    r.deltaPct?.toFixed(2) ?? "", r.p1?.toFixed(2) ?? "", r.p0?.toFixed(2) ?? "", r.pricePct?.toFixed(2) ?? "", Math.round(r.q1), Math.round(r.q0), r.unitsPct?.toFixed(2) ?? "",
+                    Math.round(r.priceEff), Math.round(r.volEff), { both: "continua", new: "nuevo", lost: "sin venta" }[r.status]]),
+                ], `performance_${perfWin.cur[0]}_vs_${perfWin.prev[0]}.csv`)}>Descargar detalle (CSV)</button>
+              </div>
+
+              <div className="el-flips">
+                <FlipCard label="Venta del periodo" value={fmtMoney(d.R1)} tone={tone(dR)} sub={`${fmtPct(dRPct, 1, true)} vs comparación`} backTitle="Venta"
+                  back={[
+                    { k: fmtRange(perfWin.cur), v: fmtMoney(d.R1) },
+                    { k: fmtRange(perfWin.prev), v: fmtMoney(d.R0) },
+                    { k: "Diferencia", v: fmtMoney(dR, true), tone: tone(dR) },
+                  ]} />
+                <FlipCard label="Unidades" value={fmtInt(d.Q1)} sub={`${fmtPct(dQPct, 1, true)} vs comparación`} backTitle="Unidades"
+                  back={[
+                    { k: fmtRange(perfWin.cur), v: fmtInt(d.Q1) },
+                    { k: fmtRange(perfWin.prev), v: fmtInt(d.Q0) },
+                    { k: "Diferencia", v: fmtInt(d.Q1 - d.Q0), tone: tone(d.Q1 - d.Q0) },
+                  ]} />
+                <FlipCard label="Precio promedio" value={fmtPrice(P1)} sub={`${fmtPct(dPPct, 1, true)} · incluye cambio de mezcla`} backTitle="¿Precio o volumen?"
+                  back={[
+                    { k: "Efecto precio", v: fmtMoney(d.bridge.price, true), tone: tone(d.bridge.price) },
+                    { k: "Efecto volumen", v: fmtMoney(d.bridge.volume, true), tone: tone(d.bridge.volume) },
+                    { k: "Precio anterior", v: fmtPrice(P0) },
+                  ]} />
+                <FlipCard label="SKUs creciendo" value={fmtInt(d.growing)} tone="acc" sub={`${fmtInt(d.falling)} cayendo · ${fmtInt(d.added)} nuevos`} backTitle="Movimiento de SKUs"
+                  back={[
+                    { k: "↑ Creciendo", v: fmtInt(d.growing), tone: "pos" },
+                    { k: "↓ Cayendo", v: fmtInt(d.falling), tone: "neg" },
+                    { k: "Nuevos (sin venta antes)", v: fmtInt(d.added) },
+                    { k: "Sin venta este periodo", v: fmtInt(d.lostN) },
+                  ]} />
+                <FlipCard label="Top 10 SKUs" value={fmtPct(d.top10Share, 0)} sub="de la venta del periodo" backTitle="Concentración"
+                  back={[
+                    { k: "SKUs que hacen el 80%", v: `${fmtInt(d.n80)} de ${fmtInt(d.nSelling)}` },
+                    { k: "Proporción del catálogo", v: fmtPct((d.n80 / Math.max(d.nSelling, 1)) * 100, 0) },
+                  ]} />
+              </div>
+
+              <div className="el-grid2">
+                <div className="el-card el-pad">
+                  <h4 className="el-h4">Venta mensual</h4>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={d.trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                      <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 10 }} width={60} />
+                      <Tooltip content={<MoneyTip />} />
+                      <Bar dataKey="venta" name="Venta" radius={[4, 4, 0, 0]}>
+                        {d.trend.map(t => <Cell key={t.month} fill={t.zone === "prev" ? "var(--elc-2)" : "var(--elc-own)"} fillOpacity={t.zone ? 1 : 0.25} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="el-leg">
+                    <span><i style={{ background: "var(--elc-own)" }} />Periodo actual</span>
+                    <span><i style={{ background: "var(--elc-2)" }} />Periodo de comparación</span>
+                  </div>
+                </div>
+                <div className="el-card el-pad">
+                  <div className="el-map-head">
+                    <h4 className="el-h4" style={{ margin: 0 }}>¿Qué explica el cambio en venta?</h4>
+                    <Pills label="Explicar el cambio por" value={perfBridge} onChange={setPerfBridge}
+                      options={[{ v: "pv", t: "Precio y volumen" }, ...(showChain ? [{ v: "chain", t: chainLabel }] : []), { v: "group", t: d.groupKey === "department" ? "Depto." : "Categoría" }, { v: "brand", t: "Marca" }, { v: "sku", t: "SKU" }]} />
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={waterfall} margin={{ top: 22, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} tickFormatter={n => (n.length > 13 ? `${n.slice(0, 12)}…` : n)} />
+                      <YAxis domain={wfDomain} allowDataOverflow tickFormatter={fmtCompact} tick={{ fontSize: 10 }} width={60} />
+                      <Tooltip content={<WaterfallTip />} cursor={{ fill: "var(--db-track-bg)" }} />
+                      <Bar dataKey="base" stackId="w" fill="transparent" isAnimationActive={false} />
+                      <Bar dataKey="h" stackId="w" radius={[4, 4, 4, 4]}>
+                        {waterfall.map(w => <Cell key={w.name} fill={w.total ? "var(--elc-own)" : w.v >= 0 ? "var(--db-pos)" : "var(--db-neg)"} fillOpacity={w.total ? 1 : 0.8} />)}
+                        <LabelList dataKey="lbl" position="top" style={{ fontSize: 10.5, fontWeight: 600 }} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  {/* Lectura en lenguaje llano: qué pasó, sin necesidad de leer la gráfica */}
+                  <div className="el-story">
+                    <p>{story.head}</p>
+                    {story.items.length > 0 && <ul>{story.items}</ul>}
+                  </div>
+                  {perfBridge === "pv" ? (
+                    <details className="el-how">
+                      <summary>¿Cómo se separa el precio de las piezas? Un ejemplo</summary>
+                      <p>Un producto vendía <b>100 piezas a $10</b> ($1,000). Ahora vende <b>120 piezas a $9</b> ($1,080): la venta subió <b>$80</b>.</p>
+                      <ul>
+                        <li><b>Más piezas</b>: 20 piezas extra × el precio de antes ($10) = <span className="el-t-pos">+$200</span>.</li>
+                        <li><b>Cambio de precio</b>: las 120 piezas de hoy × $1 menos = <span className="el-t-neg">−$120</span>.</li>
+                        <li>Juntas dan exacto el cambio: +$200 − $120 = <b>+$80</b>. Así se lee cada barra, sumando todos los productos.</li>
+                      </ul>
+                      <p>Los productos que no vendían antes (nuevos) o que ya no vendieron (salieron) van en su propia barra para no confundirlos con un cambio de precio. El eje no empieza en cero para que se vean bien las diferencias.</p>
+                    </details>
+                  ) : (
+                    <p className="el-note">Cada barra es cuánto aportó {{ chain: `cada ${(chainLabel || "").toLowerCase()}`, group: d.groupKey === "department" ? "cada departamento" : "cada categoría", brand: "cada marca", sku: "cada producto" }[perfBridge]} al cambio en pesos: los 6 que más movieron la venta y el resto junto. Verde suma, rojo resta.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="el-card el-pad" style={{ marginTop: 14 }}>
+                <div className="el-map-head">
+                  <div>
+                    <h4 className="el-h4" style={{ marginBottom: 2 }}>Mapa precio vs volumen</h4>
+                    <p className="el-note" style={{ margin: 0 }}>Cómo respondió el volumen de cada {dimLabel} a su propio cambio de precio · tamaño = venta del periodo · clic en una burbuja para ver sus productos abajo</p>
+                  </div>
+                  <Pills label="Agrupar el mapa por" value={perfDim} onChange={(v) => { setPerfDim(v); setPerfFocus(null); }} options={DIMS} />
+                </div>
+                {bubbles.length === 0 ? <div className="el-empty">No hay grupos con venta en ambos periodos.</div> : (
+                  <ResponsiveContainer width="100%" height={380}>
+                    <ScatterChart margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                      <ReferenceArea x1={0} x2={xm} y1={0} y2={ym} fill="var(--db-pos)" fillOpacity={0.07} stroke="none"
+                        label={{ value: "SUBE PRECIO Y GANA VOLUMEN", position: "insideTopRight", fontSize: 10, fill: "var(--db-pos)" }} />
+                      <ReferenceArea x1={-xm} x2={0} y1={0} y2={ym} fill="none" stroke="none"
+                        label={{ value: "BAJA PRECIO Y GANA VOLUMEN", position: "insideTopLeft", fontSize: 10, fill: "var(--db-ink-2)" }} />
+                      <ReferenceArea x1={0} x2={xm} y1={-ym} y2={0} fill="none" stroke="none"
+                        label={{ value: "SUBE PRECIO Y PIERDE VOLUMEN", position: "insideBottomRight", fontSize: 10, fill: "var(--db-ink-2)" }} />
+                      <ReferenceArea x1={-xm} x2={0} y1={-ym} y2={0} fill="var(--db-neg)" fillOpacity={0.07} stroke="none"
+                        label={{ value: "BAJA PRECIO Y AUN ASÍ PIERDE", position: "insideBottomLeft", fontSize: 10, fill: "var(--db-neg)" }} />
+                      <CartesianGrid />
+                      <XAxis type="number" dataKey="px" domain={[-xm, xm]} tickFormatter={v => `${v > 0 ? "+" : ""}${v}%`} tick={{ fontSize: 10 }}
+                        label={{ value: "Δ precio promedio", position: "insideBottom", offset: -4, fontSize: 11 }} />
+                      <YAxis type="number" dataKey="py" domain={[-ym, ym]} tickFormatter={v => `${v > 0 ? "+" : ""}${v}%`} tick={{ fontSize: 10 }} width={52}
+                        label={{ value: "Δ unidades", angle: -90, position: "insideLeft", offset: 12, fontSize: 11 }} />
+                      <ZAxis type="number" dataKey="z" range={[40, 1100]} />
+                      <ReferenceLine x={0} stroke="var(--db-ink-3)" />
+                      <ReferenceLine y={0} stroke="var(--db-ink-3)" />
+                      <Tooltip content={<BubbleTip />} cursor={{ strokeDasharray: "3 3" }} />
+                      <Scatter data={bubbles} onClick={pickBubble} cursor="pointer">
+                        {bubbles.map(b => (
+                          <Cell key={b.name} fill={!perfFocus || perfFocus === b.name ? "var(--elc-own)" : "var(--db-ink-3)"}
+                            fillOpacity={perfFocus === b.name ? 0.95 : perfFocus ? 0.25 : 0.55} stroke="var(--db-surface-hi)" />
+                        ))}
+                        <LabelList dataKey="label" position="top" style={{ fontSize: 10.5, fontWeight: 600 }} />
+                      </Scatter>
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                )}
+                <p className="el-note">Las {bubbles.length} {perfDim === "brand" ? "marcas" : perfDim === "category" ? "categorías" : "departamentos"} con más venta. Precio y unidades se miden solo con productos que vendieron en ambos periodos, para que la entrada o salida de SKUs no se confunda con un cambio de precio.</p>
+              </div>
+
+              {perfFocus && (
+                <div className="el-focus">
+                  Mostrando productos de <b>{perfFocus}</b>
+                  <button className="el-btn el-btn-sm" onClick={() => setPerfFocus(null)}>Quitar filtro</button>
+                </div>
+              )}
+              <div className="el-grid2" style={{ marginTop: perfFocus ? 0 : 14 }}>
+                {moversTable("Mayor crecimiento", top(1), "Ningún producto creció con este filtro.")}
+                {moversTable("Mayor caída", top(-1), "Ningún producto cayó con este filtro.")}
+              </div>
+
+              <div className="el-card el-pad" style={{ marginTop: 14 }}>
+                <h4 className="el-h4">Crecimiento por {d.groupKey === "department" ? "departamento" : "categoría"}</h4>
+                <ResponsiveContainer width="100%" height={Math.max(160, d.groups.length * 30 + 40)}>
+                  <BarChart data={d.groups} layout="vertical" margin={{ top: 4, right: 56, left: 0, bottom: 0 }}>
+                    <CartesianGrid horizontal={false} />
+                    {/* Holgura a ambos lados para que la etiqueta de cada barra quepa sin pisar los nombres */}
+                    <XAxis type="number" domain={[mn => Math.min(0, mn * 1.4), mx => Math.max(0, mx * 1.2)]} tickFormatter={v => `${Math.round(v)}%`} tick={{ fontSize: 10 }} />
+                    <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 11 }} />
+                    <ReferenceLine x={0} stroke="var(--db-ink-3)" />
+                    <Tooltip content={<GroupTip />} />
+                    <Bar dataKey="deltaPct" name="Crecimiento">
+                      {d.groups.map(g => <Cell key={g.name} fill={g.deltaPct >= 0 ? "var(--db-pos)" : "var(--db-neg)"} fillOpacity={0.75} />)}
+                      <LabelList dataKey="deltaPct" content={barEndLabel(v => fmtPct(v, 1, true))} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <p className="el-note">Los 12 {d.groupKey === "department" ? "departamentos" : "categorías"} con mayor cambio en pesos. Elige un departamento en los filtros para bajar a categorías.</p>
+              </div>
+            </div>
+          );
+        })()}</ErrBoundary>}
 
         {/* ═══ PORTFOLIO TAB ═══ */}
         {tab === "portfolio" && <ErrBoundary name="Portfolio">{(() => {
@@ -944,63 +1481,15 @@ export default function App() {
           const sortedPortfolio = sortRows(enrichedPortfolio, portfolioSort);
           const pagedPortfolio = sortedPortfolio.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-          // Comparación del impacto de cada escenario sobre el portafolio (para el selector de escenario)
-          const scenarioComparison = Object.keys(SCENARIOS).map(key => {
-            const sc = SCENARIOS[key];
-            const rules = sc.rules ? { ...businessRules, ...sc.rules } : businessRules;
-            let totalCurrent = 0, totalProjected = 0, up = 0, down = 0, noChange = 0;
-            for (const p of portfolioData) {
-              if (p.elasticity === null) continue;
-              const compMin = compBySku[p.sku]?.minPrice;
-              const fam = familyRules[p.sku];
-              const eff = fam && familyBusinessRules[fam] ? { ...rules, ...familyBusinessRules[fam] } : rules;
-              const ruled = applyBusinessRules(p.autoSuggestedPrice ?? p.suggestedPrice, p.currentPrice, p.currentMargin, compMin, eff);
-              const pf = ruled.finalPrice;
-              const predQ = predictUnits(p.lastUnits, p.currentPrice, pf, p.elasticity);
-              totalCurrent += p.currentPrice * p.lastUnits;
-              totalProjected += pf * predQ;
-              const delta = pf - p.currentPrice;
-              if (Math.abs(delta) < 0.01) noChange++;
-              else if (delta > 0) up++;
-              else down++;
-            }
-            return { key, ...sc, totalCurrent, totalProjected, up, down, noChange };
-          });
-
           return (
             <div>
-              {/* Selector de escenario (antes en el tab "Simulador") */}
-              <SectionHead ic="🎯">Escenario de Precios</SectionHead>
-              <div style={{ background: "var(--db-accent-soft)", border: `1px solid var(--el-info-line)`, borderLeft: `4px solid ${C.blue}`, borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 11, lineHeight: 1.6, color: C.text }}>
-                <strong style={{ color: C.navy }}>💡</strong> Cada escenario aplica un conjunto distinto de reglas globales sobre los mismos modelos de elasticidad. Las reglas por familia siempre tienen prioridad. El escenario elegido se refleja de inmediato en las sugerencias de abajo.
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 22 }}>
-                {Object.keys(SCENARIOS).map(key => {
-                  const sc = SCENARIOS[key];
-                  const isActive = scenario === key;
-                  const summary = scenarioComparison.find(c => c.key === key);
-                  const deltaPct = summary && summary.totalCurrent > 0 ? ((summary.totalProjected - summary.totalCurrent) / summary.totalCurrent) * 100 : 0;
-                  return (
-                    <div key={key} role="button" tabIndex={0} aria-pressed={isActive} className={`el-opt${isActive ? " on" : ""}`}
-                      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } }}
-                      onClick={() => {
-                      setScenario(key);
-                      logAudit({ action: "SCENARIO_CHANGE", detail: `Escenario: ${sc.label}`, before: scenario, after: key });
-                    }}>
-                      <div className="el-opt-t" style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{sc.label}</div>
-                      <div style={{ fontSize: 10, color: C.sub, lineHeight: 1.5, marginBottom: 8 }}>{sc.desc}</div>
-                      <div style={{ fontSize: 10, color: C.muted }}>
-                        Proyección: <strong style={{ color: deltaPct >= 0 ? C.green : C.red }}>
-                          {deltaPct > 0 ? "+" : ""}{deltaPct.toFixed(2)}%
-                        </strong>
-                        {" · ↑"}{summary?.up ?? 0} ↓{summary?.down ?? 0} ={summary?.noChange ?? 0}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
               <SectionHead ic="💰">Sugerencia de Precios</SectionHead>
+
+              {/* El escenario se elige en Configuración; aquí solo se recuerda cuál está activo */}
+              <div className="el-card el-scn">
+                <span>Escenario activo: <b>{SCENARIOS[scenario].label}</b></span>
+                <button className="el-btn" onClick={() => { setTab("admin"); setAdminSection("scenario"); }}>Cambiar escenario</button>
+              </div>
 
               {/* Nota sobre la metodología del optimizador */}
               <div style={{ background: "var(--db-pos-soft)", border: `1px solid var(--el-pos-line)`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 11, lineHeight: 1.6, color: C.text }}>
@@ -1013,70 +1502,58 @@ export default function App() {
                 El volumen proyectado se acota a <strong>±5×</strong> el actual para evitar proyecciones infinitas en outliers.
               </div>
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
-                <StatCard label="Productos Analizados" value={withSuggestion.length} />
-                <StatCard label="Subir Precio" value={increases.length} sub={`${(increases.length / Math.max(withSuggestion.length, 1) * 100).toFixed(0)}%`} />
-                <StatCard label="Bajar Precio" value={decreases.length} sub={`${(decreases.length / Math.max(withSuggestion.length, 1) * 100).toFixed(0)}%`} />
-                <StatCard label="Mantener" value={maintains.length} />
-                <StatCard label="Cambio Promedio" value={avgChange.toFixed(2) + "%"} accent />
-              </div>
-
+              {/* KPIs en un renglón: cada tarjeta gira para mostrar su desglose */}
               {(() => {
+                const n = withSuggestion.length;
+                const share = (x) => `${((x / Math.max(n, 1)) * 100).toFixed(0)}%`;
                 const byConf = { alta: 0, media: 0, baja: 0, muy_baja: 0 };
                 withSuggestion.forEach(r => { byConf[r.confidence] = (byConf[r.confidence] || 0) + 1; });
                 const autoOk = byConf.alta + byConf.media;
+                const changes = withSuggestion.map(p => p.pctChange).sort((a, b) => a - b);
+                const median = n ? (n % 2 ? changes[(n - 1) / 2] : (changes[n / 2 - 1] + changes[n / 2]) / 2) : 0;
+                const deltaSug = totalSalesSuggested - totalSalesCurrent;
+                const deltaApr = approvedSales - totalSalesCurrent;
+                const pending = n - approvedCount - rejectedCount;
                 return (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 14 }}>
-                    <div style={{ background: "var(--db-pos-soft)", border: `1px solid var(--el-pos-line)`, borderRadius: 10, padding: 12 }}>
-                      <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>✓ Confianza Alta</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: C.green }}>{byConf.alta}</div>
-                      <div style={{ fontSize: 9, color: C.muted }}>MAPE &lt; 20%</div>
-                    </div>
-                    <div style={{ background: "var(--db-pos-soft)", border: `1px solid var(--el-pos-line)`, borderRadius: 10, padding: 12 }}>
-                      <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>✓ Confianza Media</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: C.green, opacity: 0.85 }}>{byConf.media}</div>
-                      <div style={{ fontSize: 9, color: C.muted }}>MAPE 20-40%</div>
-                    </div>
-                    <div style={{ background: "var(--db-warn-soft)", border: `1px solid var(--el-warn-line)`, borderRadius: 10, padding: 12 }}>
-                      <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>⚠ Revisar</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: C.accent }}>{byConf.baja}</div>
-                      <div style={{ fontSize: 9, color: C.muted }}>MAPE 40-60%</div>
-                    </div>
-                    <div style={{ background: "var(--db-neg-soft)", border: `1px solid #FCA5A5`, borderRadius: 10, padding: 12 }}>
-                      <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>✗ No Aplicar</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: C.red }}>{byConf.muy_baja}</div>
-                      <div style={{ fontSize: 9, color: C.muted }}>MAPE &gt; 60% o sin señal</div>
-                    </div>
-                    <div className="el-kpi acc" style={{ padding: 12 }}>
-                      <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 700 }}>🤖 Auto-aplicables</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: "var(--db-accent-ink)" }}>{autoOk}</div>
-                      <div style={{ fontSize: 9, color: C.muted }}>{withSuggestion.length > 0 ? ((autoOk / withSuggestion.length) * 100).toFixed(0) : 0}% del portafolio</div>
-                    </div>
+                  <div className="el-flips">
+                    <FlipCard label="Productos analizados" value={fmtInt(n)}
+                      sub={`↑ ${increases.length} · ↓ ${decreases.length} · = ${maintains.length}`} backTitle="Dirección del precio"
+                      back={[
+                        { k: "↑ Subir precio", v: `${increases.length} · ${share(increases.length)}` },
+                        { k: "↓ Bajar precio", v: `${decreases.length} · ${share(decreases.length)}` },
+                        { k: "= Mantener", v: `${maintains.length} · ${share(maintains.length)}` },
+                      ]} />
+                    <FlipCard label="Cambio promedio" value={fmtPct(avgChange, 2, true)} tone="acc" sub="vs precio actual" backTitle="Rango de cambios"
+                      back={[
+                        { k: "Mediana", v: fmtPct(median, 2, true) },
+                        { k: "Mayor alza", v: fmtPct(changes[n - 1] ?? 0, 1, true), tone: "pos" },
+                        { k: "Mayor baja", v: fmtPct(changes[0] ?? 0, 1, true), tone: "neg" },
+                      ]} />
+                    <FlipCard label="Auto-aplicables" value={fmtInt(autoOk)} sub={`${share(autoOk)} con confianza alta o media`} backTitle="Confianza del modelo"
+                      back={[
+                        { k: "✓ Alta · MAPE < 20%", v: byConf.alta, tone: "pos" },
+                        { k: "✓ Media · MAPE 20–40%", v: byConf.media, tone: "pos" },
+                        { k: "⚠ Revisar · MAPE 40–60%", v: byConf.baja, tone: "warn" },
+                        { k: "✗ No aplicar · > 60% o sin señal", v: byConf.muy_baja, tone: "neg" },
+                      ]} />
+                    <FlipCard label="Venta proyectada" value={fmtMoney(totalSalesSuggested)} tone={deltaSug >= 0 ? "pos" : "neg"}
+                      sub={`${fmtPct((deltaSug / Math.max(totalSalesCurrent, 1)) * 100, 1, true)} vs ${fmtCompact(totalSalesCurrent)} actual`} backTitle="Venta del último mes"
+                      back={[
+                        { k: "Actual (precio × unidades)", v: fmtMoney(totalSalesCurrent) },
+                        { k: "Con todos los sugeridos", v: fmtMoney(totalSalesSuggested) },
+                        { k: "Diferencia", v: fmtMoney(deltaSug, true), tone: deltaSug >= 0 ? "pos" : "neg" },
+                      ]} />
+                    <FlipCard label="Venta con aprobados" value={fmtMoney(approvedSales)} tone="warn"
+                      sub={`✓ ${approvedCount} · ✗ ${rejectedCount} · ${pending} pendientes`} backTitle="Configuración aprobada"
+                      back={[
+                        { k: "✓ Aprobados", v: approvedCount, tone: "pos" },
+                        { k: "✗ Rechazados", v: rejectedCount, tone: "neg" },
+                        { k: "Pendientes", v: pending },
+                        { k: "Diferencia vs actual", v: fmtMoney(deltaApr, true), tone: deltaApr >= 0 ? "pos" : "neg" },
+                      ]} />
                   </div>
                 );
               })()}
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 14 }}>
-                <div className="el-card" style={{ padding: 14 }}>
-                  <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 600 }}>Venta Total Actual (último mes)</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: C.blue, marginTop: 4 }}>${totalSalesCurrent.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</div>
-                  <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Precio × unidades del último mes</div>
-                </div>
-                <div className="el-kpi pos" style={{ padding: 14 }}>
-                  <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 600 }}>Venta Proyectada (c/ todos los sugeridos)</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: C.green, marginTop: 4 }}>${totalSalesSuggested.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</div>
-                  <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>
-                    Δ {(((totalSalesSuggested - totalSalesCurrent) / Math.max(totalSalesCurrent, 1)) * 100).toFixed(2)}% vs actual
-                  </div>
-                </div>
-                <div style={{ background: C.card, border: `2px solid ${C.accent}`, borderRadius: 10, padding: 14 }}>
-                  <div style={{ fontSize: 9, color: C.sub, textTransform: "uppercase", fontWeight: 600 }}>Venta c/ Configuración Aprobada</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: C.accent, marginTop: 4 }}>${approvedSales.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</div>
-                  <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>
-                    ✓ {approvedCount} aprobados · ✗ {rejectedCount} rechazados · {withSuggestion.length - approvedCount - rejectedCount} pendientes
-                  </div>
-                </div>
-              </div>
 
               {/* Upload + acciones */}
               <div className="el-card" style={{ padding: 12, marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -1144,7 +1621,7 @@ export default function App() {
               )}
 
               <div className="el-card" style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 1700, tableLayout: "fixed" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: Object.values(portfolioWidths).reduce((s, w) => s + w, 0), tableLayout: "fixed" }}>
                   <thead>
                     <tr style={{ background: "var(--db-track-bg)", borderBottom: `2px solid ${C.border}` }}>
                       <SortHeader label="Img" widthKey="img" widths={portfolioWidths} setWidths={setPortfolioWidths} />
@@ -1512,16 +1989,71 @@ export default function App() {
           );
         })()}
 
-        {/* ═══ ADMIN TAB (Reglas + Auditoría en sub-secciones) ═══ */}
+        {/* ═══ CONFIGURACIÓN (Escenario · Reglas · Familias · Auditoría en sub-secciones) ═══ */}
         {tab === "admin" && (
           <div className="el-tabs" style={{ marginBottom: 4 }}>
-            <Pills label="Administración" value={adminSection} onChange={setAdminSection}
-              options={[{ v: "rules", t: "Reglas de negocio" }, { v: "audit", t: "Auditoría" }]} />
+            <Pills label="Configuración" value={adminSection} onChange={setAdminSection}
+              options={[{ v: "scenario", t: "Escenario de precios" }, { v: "rules", t: "Reglas de negocio" }, { v: "families", t: "Familias y precio por familia" }, { v: "audit", t: "Auditoría" }]} />
           </div>
         )}
 
-        {/* ── Admin › Reglas ── */}
-        {tab === "admin" && adminSection === "rules" && (() => {
+        {/* ── Configuración › Escenario ── */}
+        {tab === "admin" && adminSection === "scenario" && (() => {
+          // Impacto de cada escenario sobre el portafolio filtrado, para comparar antes de elegir
+          const scenarioComparison = Object.keys(SCENARIOS).map(key => {
+            const sc = SCENARIOS[key];
+            const rules = sc.rules ? { ...businessRules, ...sc.rules } : businessRules;
+            let totalCurrent = 0, totalProjected = 0, up = 0, down = 0, noChange = 0;
+            for (const p of portfolioData) {
+              if (p.elasticity === null) continue;
+              const compMin = compBySku[p.sku]?.minPrice;
+              const fam = familyRules[p.sku];
+              const eff = { ...rules, ...(categoryRules[p.category] || {}), ...(fam && familyBusinessRules[fam] ? familyBusinessRules[fam] : {}) };
+              const ruled = applyBusinessRules(p.autoSuggestedPrice ?? p.suggestedPrice, p.currentPrice, p.currentMargin, compMin, eff);
+              const pf = ruled.finalPrice;
+              const predQ = predictUnits(p.lastUnits, p.currentPrice, pf, p.elasticity);
+              totalCurrent += p.currentPrice * p.lastUnits;
+              totalProjected += pf * predQ;
+              const delta = pf - p.currentPrice;
+              if (Math.abs(delta) < 0.01) noChange++;
+              else if (delta > 0) up++;
+              else down++;
+            }
+            return { key, ...sc, totalCurrent, totalProjected, up, down, noChange };
+          });
+          return (
+            <div style={{ paddingBottom: 30 }}>
+              <SectionHead>Escenario de Precios</SectionHead>
+              <p className="el-note" style={{ marginTop: -4, marginBottom: 12 }}>
+                Cada escenario aplica un conjunto distinto de reglas globales sobre los mismos modelos de elasticidad. Las reglas por familia siempre tienen prioridad. El escenario elegido se refleja de inmediato en la Sugerencia de precios.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+                {scenarioComparison.map(sc => {
+                  const isActive = scenario === sc.key;
+                  const deltaPct = sc.totalCurrent > 0 ? ((sc.totalProjected - sc.totalCurrent) / sc.totalCurrent) * 100 : 0;
+                  const choose = () => {
+                    setScenario(sc.key);
+                    logAudit({ action: "SCENARIO_CHANGE", detail: `Escenario: ${sc.label}`, before: scenario, after: sc.key });
+                  };
+                  return (
+                    <div key={sc.key} role="button" tabIndex={0} aria-pressed={isActive} className={`el-opt${isActive ? " on" : ""}`}
+                      onClick={choose} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); } }}>
+                      <div className="el-opt-t" style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{sc.label}</div>
+                      <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.5, marginBottom: 8 }}>{sc.desc}</div>
+                      <div style={{ fontSize: 11, color: C.sub }}>
+                        Venta proyectada: <strong className={`el-t-${deltaPct >= 0 ? "pos" : "neg"}`}>{fmtPct(deltaPct, 1, true)}</strong>
+                        {" · ↑"}{sc.up} ↓{sc.down} ={sc.noChange}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── Configuración › Reglas de negocio y Familias ── */}
+        {tab === "admin" && (adminSection === "rules" || adminSection === "families") && (() => {
           // Agrupa SKUs por familia
           const families = {};
           for (const sku of Object.keys(familyRules)) {
@@ -1543,8 +2075,30 @@ export default function App() {
               : 0;
             const agg = familyAggregates[name];
             const analysis = agg ? analyzeElasticity(agg.series) : null;
-            return { name, skus, products, totalUnits, avgPrice, analysis };
+            // Rango de precios de hoy entre los SKUs: si no es un solo precio, la familia está desalineada en tienda
+            const lastPrices = products.map(p => p.series[p.series.length - 1]?.price).filter(x => x > 0);
+            const minP = lastPrices.length ? Math.min(...lastPrices) : 0, maxP = lastPrices.length ? Math.max(...lastPrices) : 0;
+            return { name, skus, products, totalUnits, avgPrice, analysis, minP, maxP };
           }).sort((a, b) => b.totalUnits - a.totalUnits);
+
+          // El formulario de reglas edita el alcance elegido: global o una categoría. En una categoría, vacío = hereda
+          // la global (la llave se borra para que el merge no la sobreescriba con null).
+          const editRules = ruleScope === "global" ? businessRules : (categoryRules[ruleScope] || {});
+          const setEditRules = (fn) => {
+            if (ruleScope === "global") { setBusinessRules(fn); return; }
+            setCategoryRules(cr => {
+              const next = fn(cr[ruleScope] || {});
+              const clean = Object.fromEntries(Object.entries(next).filter(([, v]) => v !== null && v !== undefined && !(typeof v === "number" && !isFinite(v))));
+              const n = { ...cr };
+              if (Object.keys(clean).length) n[ruleScope] = clean; else delete n[ruleScope];
+              return n;
+            });
+          };
+          const ph = (k, fallback) => {
+            if (ruleScope === "global") return fallback;
+            const g = businessRules[k];
+            return g === null || g === undefined ? "sin regla" : `global: ${g}`;
+          };
 
           const handleFamilyUpload = (file) => {
             if (!file || !data) return;
@@ -1553,12 +2107,14 @@ export default function App() {
             reader.onload = (ev) => {
               try {
                 const text = String(ev.target.result).replace(/^\uFEFF/, "");
-                const lines = text.split(/\r?\n/).filter(l => l.trim());
-                if (lines.length < 2) { setFamilyUploadMsg("Archivo vacío"); return; }
-                const header = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/"/g, ""));
+                // Papa respeta comillas (las descripciones del layout traen comas) y detecta "," o ";" (Excel en español)
+                const parsed = Papa.parse(text, { skipEmptyLines: "greedy" }).data.filter(r => !String(r[0] ?? "").startsWith("#"));
+                if (parsed.length < 2) { setFamilyUploadMsg("Archivo vacío"); return; }
+                const header = parsed[0].map(h => String(h).trim().toLowerCase());
                 const famIdx = header.findIndex(h => h === "family" || h === "familia" || h === "family_name");
-                const upcIdx = header.findIndex(h => h === "upc");
+                const upcIdx = header.findIndex(h => h === "upc" || h === "ean");
                 const skuIdx = header.findIndex(h => h === "sku");
+                const priceIdx = header.findIndex(h => h === "precio_familia" || h === "family_price");
                 // Columnas opcionales de reglas específicas
                 const ruleCols = {
                   maxPctChange: header.findIndex(h => h === "max_pct_change"),
@@ -1575,9 +2131,10 @@ export default function App() {
                 }
                 const next = { ...familyRules };
                 const nextRules = { ...familyBusinessRules };
-                let matched = 0, notFound = 0, rulesApplied = 0;
-                for (let i = 1; i < lines.length; i++) {
-                  const parts = lines[i].split(",").map(x => x.trim().replace(/"/g, ""));
+                const nextPrices = { ...familyPrices };
+                let matched = 0, notFound = 0, rulesApplied = 0, pricesSet = 0;
+                for (let i = 1; i < parsed.length; i++) {
+                  const parts = parsed[i].map(x => String(x ?? "").trim());
                   const fam = parts[famIdx];
                   if (!fam) continue;
                   let prod = null;
@@ -1591,6 +2148,12 @@ export default function App() {
                   if (!prod) { notFound++; continue; }
                   next[prod.sku] = fam;
                   matched++;
+                  // Precio fijo de familia: la primera fila con precio de cada familia lo define
+                  const famPrice = priceIdx >= 0 ? parseFloat(String(parts[priceIdx]).replace(/[$,\s]/g, "")) : NaN;
+                  if (isFinite(famPrice) && famPrice > 0 && nextPrices[fam] === familyPrices[fam]) {
+                    nextPrices[fam] = Math.round(famPrice * 100) / 100;
+                    pricesSet++;
+                  }
                   // Extraer reglas (una sola vez por familia — primera fila gana)
                   if (!nextRules[fam]) {
                     const famRules = {};
@@ -1610,7 +2173,9 @@ export default function App() {
                 }
                 setFamilyRules(next);
                 setFamilyBusinessRules(nextRules);
-                setFamilyUploadMsg(`✓ ${matched} productos asignados · ${notFound} no encontrados · ${rulesApplied} familias con reglas específicas`);
+                setFamilyPrices(nextPrices);
+                logAudit({ action: "FAMILY_UPLOAD", detail: `${matched} SKUs en familias · ${pricesSet} precios de familia` });
+                setFamilyUploadMsg(`✓ ${matched} productos asignados · ${notFound} no encontrados · ${pricesSet} familias con precio fijo · ${rulesApplied} con reglas específicas`);
               } catch (err) { setFamilyUploadMsg("Error: " + err.message); }
             };
             reader.readAsText(file);
@@ -1618,7 +2183,27 @@ export default function App() {
 
           return (
             <div style={{ paddingBottom: 30 }}>
-              <SectionHead ic="⚖️">Reglas de Negocio (aplica a todo el portafolio)</SectionHead>
+              {adminSection === "rules" && (<>
+              <SectionHead ic="⚖️">Reglas de Negocio</SectionHead>
+
+              {/* Alcance: todo el portafolio o una categoría; precedencia familia > categoría > escenario > global */}
+              <div className="el-card el-scope">
+                <Sel label="Aplicar a" value={ruleScope} onChange={setRuleScope}
+                  options={[{ v: "global", t: "Todo el portafolio (global)" }, ...allCategories.map(c => ({ v: c, t: `Categoría: ${c}${categoryRules[c] ? " ●" : ""}` }))]} />
+                <div className="el-note" style={{ margin: 0, flex: 1, minWidth: 240 }}>
+                  {ruleScope === "global"
+                    ? <>Estas reglas aplican a todo el portafolio. Para una categoría con necesidades distintas, elígela arriba: solo los campos que llenes ahí reemplazan a los globales.</>
+                    : <>Editando <b>{ruleScope}</b>: deja un campo vacío para usar la regla global (se muestra en gris). Precedencia: <b>familia &gt; categoría &gt; escenario &gt; global</b>.</>}
+                </div>
+                {Object.keys(categoryRules).length > 0 && (
+                  <div className="el-scope-list">
+                    <span>Categorías con reglas propias:</span>
+                    {Object.keys(categoryRules).sort().map(c => (
+                      <button key={c} className={`el-btn el-btn-sm${ruleScope === c ? " on" : ""}`} onClick={() => setRuleScope(c)}>{c}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div className="el-card" style={{ padding: 18, marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.6, marginBottom: 14 }}>
@@ -1630,8 +2215,9 @@ export default function App() {
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Cambio máximo vs precio actual</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <input type="number" min="0" max="100" step="1"
-                        value={businessRules.maxPctChange ?? ""}
-                        onChange={(e) => setBusinessRules(r => ({ ...r, maxPctChange: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        value={editRules.maxPctChange ?? ""}
+                        placeholder={ph("maxPctChange", "30")}
+                        onChange={(e) => setEditRules(r => ({ ...r, maxPctChange: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                         className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>% (±)</span>
@@ -1643,9 +2229,9 @@ export default function App() {
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Margen mínimo permitido</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <input type="number" min="0" max="100" step="1"
-                        value={businessRules.minMarginPct ?? ""}
-                        onChange={(e) => setBusinessRules(r => ({ ...r, minMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        placeholder="ej. 15"
+                        value={editRules.minMarginPct ?? ""}
+                        onChange={(e) => setEditRules(r => ({ ...r, minMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        placeholder={ph("minMarginPct", "ej. 15")}
                         className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>%</span>
@@ -1657,9 +2243,9 @@ export default function App() {
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Margen máximo permitido</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <input type="number" min="0" max="100" step="1"
-                        value={businessRules.maxMarginPct ?? ""}
-                        onChange={(e) => setBusinessRules(r => ({ ...r, maxMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        placeholder="ej. 60"
+                        value={editRules.maxMarginPct ?? ""}
+                        onChange={(e) => setEditRules(r => ({ ...r, maxMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        placeholder={ph("maxMarginPct", "ej. 60")}
                         className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>%</span>
@@ -1671,9 +2257,9 @@ export default function App() {
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Max sobre competencia mínima</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <input type="number" step="1"
-                        value={businessRules.priceAboveCompMin ?? ""}
-                        onChange={(e) => setBusinessRules(r => ({ ...r, priceAboveCompMin: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        placeholder="ej. 5"
+                        value={editRules.priceAboveCompMin ?? ""}
+                        onChange={(e) => setEditRules(r => ({ ...r, priceAboveCompMin: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        placeholder={ph("priceAboveCompMin", "ej. 5")}
                         className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>%</span>
@@ -1686,9 +2272,9 @@ export default function App() {
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <span style={{ fontSize: 12, color: C.sub }}>$</span>
                       <input type="number" step="0.01" min="0"
-                        value={businessRules.minPriceFloor ?? ""}
-                        onChange={(e) => setBusinessRules(r => ({ ...r, minPriceFloor: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        placeholder="0"
+                        value={editRules.minPriceFloor ?? ""}
+                        onChange={(e) => setEditRules(r => ({ ...r, minPriceFloor: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        placeholder={ph("minPriceFloor", "0")}
                         className="el-field" style={{ width: 100, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                     </div>
@@ -1700,9 +2286,9 @@ export default function App() {
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <span style={{ fontSize: 12, color: C.sub }}>$</span>
                       <input type="number" step="0.01" min="0"
-                        value={businessRules.maxPriceCeiling ?? ""}
-                        onChange={(e) => setBusinessRules(r => ({ ...r, maxPriceCeiling: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        placeholder="sin límite"
+                        value={editRules.maxPriceCeiling ?? ""}
+                        onChange={(e) => setEditRules(r => ({ ...r, maxPriceCeiling: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        placeholder={ph("maxPriceCeiling", "sin límite")}
                         className="el-field" style={{ width: 100, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                     </div>
@@ -1712,10 +2298,11 @@ export default function App() {
                   <div>
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Redondeo psicológico</label>
                     <select
-                      value={businessRules.roundingMode}
-                      onChange={(e) => setBusinessRules(r => ({ ...r, roundingMode: e.target.value }))}
+                      value={editRules.roundingMode ?? ""}
+                      onChange={(e) => setEditRules(r => ({ ...r, roundingMode: e.target.value || null }))}
                       className="el-field" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                     >
+                      {ruleScope !== "global" && <option value="">Igual que la regla global</option>}
                       <option value="none">Ninguno (2 decimales)</option>
                       <option value="integer">Entero</option>
                       <option value="ending_99">Terminación .99</option>
@@ -1724,35 +2311,61 @@ export default function App() {
                     </select>
                     <div style={{ fontSize: 9, color: C.muted, marginTop: 4 }}>Aplica patrón de pricing psicológico al precio final.</div>
                   </div>
+
+                  <div>
+                    <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Si el modelo no es confiable</label>
+                    <select
+                      value={editRules.lowConfidence ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value || null;
+                        setEditRules(r => ({ ...r, lowConfidence: v }));
+                        logAudit({ action: "RULES_LOW_CONFIDENCE", detail: `${ruleScope === "global" ? "Global" : ruleScope} · sin modelo confiable: ${v === "hold" ? "mantener precio" : v === "suggest" ? "sugerir de todos modos" : "igual que global"}` });
+                      }}
+                      className="el-field" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
+                    >
+                      {ruleScope !== "global" && <option value="">Igual que la regla global</option>}
+                      <option value="hold">Mantener el precio actual (recomendado)</option>
+                      <option value="suggest">Sugerir precio de todos modos</option>
+                    </select>
+                    <div style={{ fontSize: 9, color: C.muted, marginTop: 4 }}>Aplica a productos con error del modelo &gt; 60% o sin señal de elasticidad (confianza "No aplicar").</div>
+                  </div>
                 </div>
 
                 <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button onClick={() => {
-                    setBusinessRules({
-                      maxPctChange: 30, minMarginPct: null, maxMarginPct: null,
-                      minPriceFloor: null, maxPriceCeiling: null,
-                      priceAboveCompMin: null, roundingMode: "none",
-                    });
-                    logAudit({ action: "RULES_RESET_GLOBAL", detail: "Reset reglas de negocio globales a default" });
+                    if (ruleScope === "global") {
+                      setBusinessRules({
+                        maxPctChange: 30, minMarginPct: null, maxMarginPct: null,
+                        minPriceFloor: null, maxPriceCeiling: null,
+                        priceAboveCompMin: null, roundingMode: "none", lowConfidence: "hold",
+                      });
+                      logAudit({ action: "RULES_RESET_GLOBAL", detail: "Reset reglas de negocio globales a default" });
+                    } else {
+                      setCategoryRules(cr => { const n = { ...cr }; delete n[ruleScope]; return n; });
+                      logAudit({ action: "RULES_RESET_CATEGORY", detail: `Quitar reglas propias de la categoría ${ruleScope}` });
+                    }
                   }} className="el-btn" style={{ padding: "7px 14px", color: C.sub, fontSize: 11, cursor: "pointer" }}>
-                    Resetear valores
+                    {ruleScope === "global" ? "Resetear valores" : "Quitar reglas de esta categoría"}
                   </button>
                   <div style={{ flex: 1, fontSize: 11, color: C.sub, alignSelf: "center" }}>
                     <strong style={{ color: C.navy }}>Activas ahora:</strong>{" "}
                     {[
-                      businessRules.maxPctChange ? `cambio máx ${businessRules.maxPctChange}%` : null,
-                      businessRules.minMarginPct ? `margen mín ${businessRules.minMarginPct}%` : null,
-                      businessRules.maxMarginPct ? `margen máx ${businessRules.maxMarginPct}%` : null,
-                      businessRules.priceAboveCompMin !== null ? `max ${businessRules.priceAboveCompMin}% vs comp.` : null,
-                      businessRules.minPriceFloor ? `piso $${businessRules.minPriceFloor}` : null,
-                      businessRules.maxPriceCeiling ? `techo $${businessRules.maxPriceCeiling}` : null,
-                      businessRules.roundingMode !== "none" ? `redondeo ${businessRules.roundingMode}` : null,
+                      editRules.maxPctChange ? `cambio máx ${editRules.maxPctChange}%` : null,
+                      editRules.minMarginPct ? `margen mín ${editRules.minMarginPct}%` : null,
+                      editRules.maxMarginPct ? `margen máx ${editRules.maxMarginPct}%` : null,
+                      editRules.priceAboveCompMin !== null ? `max ${editRules.priceAboveCompMin}% vs comp.` : null,
+                      editRules.minPriceFloor ? `piso $${editRules.minPriceFloor}` : null,
+                      editRules.maxPriceCeiling ? `techo $${editRules.maxPriceCeiling}` : null,
+                      editRules.roundingMode !== "none" ? `redondeo ${editRules.roundingMode}` : null,
                     ].filter(Boolean).join(" · ") || "ninguna"}
                   </div>
                 </div>
               </div>
 
-              <SectionHead ic="📋">Reglas de Familia de Productos</SectionHead>
+              </>)}
+
+              {adminSection === "families" && (<>
+              <SectionHead ic="📋">Familias y Precio por Familia</SectionHead>
 
               <div style={{ background: "var(--db-accent-soft)", border: `1px solid var(--el-info-line)`, borderLeft: `4px solid ${C.blue}`, borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 11, lineHeight: 1.6, color: C.text }}>
                 <div style={{ fontWeight: 700, color: C.navy, marginBottom: 4 }}>💡 Cómo funciona</div>
@@ -1774,53 +2387,54 @@ export default function App() {
 
               {/* Upload + descarga plantilla */}
               <div className="el-card" style={{ padding: 14, marginBottom: 14 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: C.navy, marginBottom: 10 }}>...o cargar reglas desde CSV</div>
-                <div style={{ fontSize: 11, color: C.sub, marginBottom: 10, lineHeight: 1.5 }}>
-                  Formato esperado (encabezado obligatorio): <code style={{ background: "var(--db-track-bg)", padding: "2px 6px", borderRadius: 4 }}>family,upc</code> o <code style={{ background: "var(--db-track-bg)", padding: "2px 6px", borderRadius: 4 }}>family,sku</code>. Una fila por producto.
-                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 8 }}>...o definirlas de forma masiva con el layout</div>
+                <ol className="el-steps">
+                  <li><b>Descarga el layout</b>: trae tu catálogo (con los filtros de arriba) y las familias que ya existan.</li>
+                  <li>Escribe el mismo nombre en <code>familia</code> para los productos que deben costar igual (ej. todos los sabores de <b>Electrolit 625 ml</b>).</li>
+                  <li>Opcional: pon el precio en <code>precio_familia</code> para fijarlo. Si lo dejas vacío, la herramienta sugiere uno por elasticidad.</li>
+                  <li><b>Sube el archivo</b>. Las filas sin familia se ignoran; también acepta <code>family,upc</code> o <code>family,sku</code>.</li>
+                </ol>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                   <label className="el-btn-pri" style={{ padding: "8px 16px", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
                     Subir reglas
                     <input type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={(e) => handleFamilyUpload(e.target.files?.[0])} />
                   </label>
                   <button onClick={() => {
-                    const sample =
-                      "family,upc,max_pct_change,min_margin_pct,max_margin_pct,min_price_floor,max_price_ceiling,price_above_comp_min,rounding_mode\n" +
-                      "Electrolit 625,7501008071342,10,15,,,,5,ending_95\n" +
-                      "Electrolit 625,7501008071343,10,15,,,,5,ending_95\n" +
-                      "Electrolit 625,7501008071344,10,15,,,,5,ending_95\n" +
-                      "# Columnas max_pct_change...rounding_mode son opcionales (aplican por familia; la primera fila de cada familia define las reglas)\n";
-                    const blob = new Blob([sample], { type: "text/csv" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a"); a.href = url; a.download = "plantilla_reglas_familia.csv"; a.click();
-                    URL.revokeObjectURL(url);
-                  }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.card, fontSize: 11, color: C.sub, cursor: "pointer" }}>
-                    Plantilla
+                    // Layout con el catálogo real (respeta los filtros): se llenan "familia" y "precio_familia" y se sube de vuelta
+                    const rows = [["familia", "sku", "upc", "descripcion", "departamento", "categoria", "marca", "precio_actual", "precio_familia",
+                      "max_pct_change", "min_margin_pct", "max_margin_pct", "min_price_floor", "max_price_ceiling", "price_above_comp_min", "rounding_mode"]];
+                    for (const p of filtered) {
+                      const fam = familyRules[p.sku] || "";
+                      const fr = (fam && familyBusinessRules[fam]) || {};
+                      const lm = p.series[p.series.length - 1];
+                      rows.push([fam, p.sku, p.upc || "", p.sku_des, p.department, p.category, p.brand, lm?.price?.toFixed(2) ?? "",
+                        fam && isFinite(familyPrices[fam]) ? familyPrices[fam] : "",
+                        fr.maxPctChange ?? "", fr.minMarginPct ?? "", fr.maxMarginPct ?? "", fr.minPriceFloor ?? "", fr.maxPriceCeiling ?? "", fr.priceAboveCompMin ?? "", fr.roundingMode ?? ""]);
+                    }
+                    downloadCSV(rows, "layout_familias.csv");
+                  }} className="el-btn" style={{ padding: "8px 14px", fontSize: 12, cursor: "pointer" }}>
+                    Descargar layout ({fmtInt(filtered.length)} productos)
                   </button>
                   {Object.keys(familyRules).length > 0 && (
                     <>
                       <button onClick={() => {
-                        const rows = [["family", "sku", "upc", "max_pct_change", "min_margin_pct", "max_margin_pct", "min_price_floor", "max_price_ceiling", "price_above_comp_min", "rounding_mode"]];
+                        const rows = [["familia", "sku", "upc", "descripcion", "precio_familia", "max_pct_change", "min_margin_pct", "max_margin_pct", "min_price_floor", "max_price_ceiling", "price_above_comp_min", "rounding_mode"]];
                         for (const sku of Object.keys(familyRules)) {
                           const p = data.products.find(x => x.sku === sku);
                           const fam = familyRules[sku];
                           const fr = familyBusinessRules[fam] || {};
                           rows.push([
-                            fam, sku, p?.upc || "",
+                            fam, sku, p?.upc || "", p?.sku_des || "", isFinite(familyPrices[fam]) ? familyPrices[fam] : "",
                             fr.maxPctChange ?? "", fr.minMarginPct ?? "", fr.maxMarginPct ?? "",
                             fr.minPriceFloor ?? "", fr.maxPriceCeiling ?? "", fr.priceAboveCompMin ?? "",
                             fr.roundingMode ?? "",
                           ]);
                         }
-                        const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-                        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement("a"); a.href = url; a.download = "reglas_familia_actual.csv"; a.click();
-                        URL.revokeObjectURL(url);
+                        downloadCSV(rows, "reglas_familia_actual.csv");
                       }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${C.green}`, background: "var(--db-pos-soft)", color: C.green, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                         Descargar reglas actuales
                       </button>
-                      <button onClick={() => { setFamilyRules({}); setFamilyBusinessRules({}); }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${C.red}`, background: "var(--db-neg-soft)", color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                      <button onClick={() => { setFamilyRules({}); setFamilyBusinessRules({}); setFamilyPrices({}); }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${C.red}`, background: "var(--db-neg-soft)", color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                         Eliminar todas las reglas
                       </button>
                     </>
@@ -1846,8 +2460,8 @@ export default function App() {
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                     <thead>
                       <tr style={{ background: "var(--db-track-bg)", borderBottom: `2px solid ${C.border}` }}>
-                        {["Familia", "# SKUs", "Unidades (último mes)", "Precio Prom.", "Elasticidad Agregada", "Método", "MAPE", "SKUs", "Acciones"].map((h, i) => (
-                          <th key={i} style={{ padding: "10px 8px", textAlign: i < 1 || i === 7 ? "left" : "center", color: C.sub, fontWeight: 600, fontSize: 9, textTransform: "uppercase" }}>{h}</th>
+                        {["Familia", "# SKUs", "Unidades (último mes)", "Precio hoy", "Precio familia", "Elasticidad Agregada", "Método", "MAPE", "SKUs", "Acciones"].map((h, i) => (
+                          <th key={i} style={{ padding: "10px 8px", textAlign: i < 1 || i === 8 ? "left" : "center", color: C.sub, fontWeight: 600, fontSize: 9, textTransform: "uppercase" }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -1873,7 +2487,21 @@ export default function App() {
                             </td>
                             <td style={{ padding: "10px 8px", textAlign: "center", fontWeight: 600 }}>{f.skus.length}</td>
                             <td style={{ padding: "10px 8px", textAlign: "center" }}>{f.totalUnits.toLocaleString()}</td>
-                            <td style={{ padding: "10px 8px", textAlign: "center" }}>${f.avgPrice.toFixed(2)}</td>
+                            <td style={{ padding: "10px 8px", textAlign: "center", whiteSpace: "nowrap" }}>
+                              {f.maxP - f.minP < 0.01 ? fmtPrice(f.minP) : <>{fmtPrice(f.minP)} – {fmtPrice(f.maxP)}<div><Badge color="amber">⚠ Precios distintos</Badge></div></>}
+                            </td>
+                            <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                              <input type="number" min="0" step="0.01" className="el-field" aria-label={`Precio fijo de la familia ${f.name}`}
+                                style={{ width: 96, padding: "6px 8px", borderRadius: 6, fontSize: 12 }}
+                                value={familyPrices[f.name] ?? ""}
+                                placeholder={familySuggest[f.name] ? `Sug. ${familySuggest[f.name].finalPrice.toFixed(2)}` : "Automático"}
+                                onChange={e => {
+                                  const v = e.target.value === "" ? undefined : parseFloat(e.target.value);
+                                  setFamilyPrices(r => { const n = { ...r }; if (isFinite(v) && v > 0) n[f.name] = v; else delete n[f.name]; return n; });
+                                }}
+                                onBlur={e => logAudit({ action: "FAMILY_PRICE", family: f.name, detail: e.target.value ? `Precio de familia ${f.name}: $${e.target.value}` : `Precio de familia ${f.name}: automático` })} />
+                              <div style={{ fontSize: 9, color: C.muted, marginTop: 3 }}>{isFinite(familyPrices[f.name]) ? "Fijo (manual)" : "Vacío = sugerido por elasticidad"}</div>
+                            </td>
                             <td style={{ padding: "10px 8px", textAlign: "center", fontWeight: 700, color: best ? (best.elasticity < -1 ? C.red : best.elasticity < 0 ? C.green : C.accent) : C.muted }}>
                               {best ? best.elasticity.toFixed(2) : "-"}
                             </td>
@@ -1895,6 +2523,7 @@ export default function App() {
                                 for (const s of f.skus) delete next[s];
                                 setFamilyRules(next);
                                 setFamilyBusinessRules(r => { const n = { ...r }; delete n[f.name]; return n; });
+                                setFamilyPrices(r => { const n = { ...r }; delete n[f.name]; return n; });
                               }} style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${C.red}`, background: "var(--db-neg-soft)", color: C.red, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>
                                 Eliminar
                               </button>
@@ -1906,11 +2535,12 @@ export default function App() {
                   </table>
                 </div>
               )}
+              </>)}
             </div>
           );
         })()}
 
-        {/* ── Admin › Auditoría ── */}
+        {/* ── Configuración › Auditoría ── */}
         {tab === "admin" && adminSection === "audit" && (() => {
           // Por usuario: stats y serie de tiempo
           const byUser = {};

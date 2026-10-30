@@ -347,7 +347,8 @@ function calcularBodesa(fuentes, log = () => {}) {
   log(`Competencia: ${Object.keys(competitor).length} productos con precio de competidor (cortes: ${compFiles.join(", ")})`);
 
   return {
-    data: { generated: new Date().toISOString(), client: "Bodesa", months: allMonths, segmentElasticity, products },
+    // classificationLabel: la app muestra fesa_classification como selector de "Cadena" (El Bodegón / La Marina)
+    data: { generated: new Date().toISOString(), client: "Bodesa", classificationLabel: "Cadena", months: allMonths, segmentElasticity, products },
     competitor,
   };
 }
