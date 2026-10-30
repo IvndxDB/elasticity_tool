@@ -53,6 +53,17 @@ const SCENARIOS = {
   },
 };
 
+/* ── Reglas de negocio: columnas de la matriz por categoría y etiquetas de redondeo ── */
+const RULE_COLS = [
+  { k: "maxPctChange", t: "Cambio máx.", unit: "± %" },
+  { k: "minMarginPct", t: "Margen mín.", unit: "%" },
+  { k: "maxMarginPct", t: "Margen máx.", unit: "%" },
+  { k: "priceAboveCompMin", t: "Máx. vs comp.", unit: "%" },
+  { k: "minPriceFloor", t: "Piso", unit: "$" },
+  { k: "maxPriceCeiling", t: "Techo", unit: "$" },
+];
+const ROUNDING_LABELS = { none: "Ninguno", integer: "Entero", ending_99: "Termina .99", ending_95: "Termina .95", nearest_5: "Múltiplo de 5" };
+
 /* ── Helpers ── */
 const fmtInt = (n) => Math.round(n).toLocaleString("es-MX");
 const fmtMoney = (n, signed = false) => `${n < 0 ? "−" : signed && n > 0 ? "+" : ""}$${Math.abs(Math.round(n)).toLocaleString("es-MX")}`;
@@ -574,10 +585,10 @@ export default function App() {
   // Precio fijo por familia { familyName: price }: lo define el usuario y se aplica igual a todos los SKUs de la
   // familia, como un override manual (no pasa por reglas). Sin precio fijo, la familia usa el sugerido por elasticidad.
   const [familyPrices, setFamilyPrices] = useState({});
-  // Reglas por categoría { category: { maxPctChange, ... } }: solo las llaves definidas sobreescriben a las globales.
-  // Precedencia: familia > categoría > escenario > global
+  // Reglas por categoría { category: { maxPctChange, ... } }: juego COMPLETO que sustituye a las globales y al
+  // escenario en esa categoría (null = sin esa regla). Precedencia: familia > categoría > escenario > global
   const [categoryRules, setCategoryRules] = useState({});
-  const [ruleScope, setRuleScope] = useState("global"); // "global" o el nombre de la categoría que se está editando
+  const [catToAdd, setCatToAdd] = useState(""); // categoría elegida para agregarle reglas propias
   const [familyUploadMsg, setFamilyUploadMsg] = useState("");
   const [clusterPopup, setClusterPopup] = useState(null); // { key, abc, sub, products: [...] }
   const [ruleBuilderOpen, setRuleBuilderOpen] = useState(false);
@@ -805,10 +816,9 @@ export default function App() {
       const usesFamPrice = !isFinite(overrides[p.sku]) && isFinite(famPrice);
       const override = usesFamPrice ? famPrice : overrides[p.sku];
       const compMin = compBySku[p.sku]?.minPrice;
-      // Reglas efectivas: familia > categoría > escenario > globales
+      // Reglas efectivas: familia > categoría (sustituye global + escenario) > escenario > globales
       const effectiveRules = {
-        ...effectiveGlobalRules,
-        ...(categoryRules[p.category] || {}),
+        ...(categoryRules[p.category] || effectiveGlobalRules),
         ...(fam && familyBusinessRules[fam] ? familyBusinessRules[fam] : {}),
       };
       const ruled = applyBusinessRules(autoSuggestedRaw, currentPrice, currentMargin, compMin, effectiveRules);
@@ -1323,9 +1333,11 @@ export default function App() {
               </div>
 
               <div className="el-grid2">
-                <div className="el-card el-pad">
+                <div className="el-card el-pad el-col">
                   <h4 className="el-h4">Venta mensual</h4>
-                  <ResponsiveContainer width="100%" height={240}>
+                  {/* La gráfica ocupa todo el alto de la tarjeta (se empareja con la cascada de al lado) */}
+                  <div className="el-fill">
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={d.trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                       <CartesianGrid vertical={false} />
                       <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
@@ -1336,6 +1348,7 @@ export default function App() {
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
+                  </div>
                   <div className="el-leg">
                     <span><i style={{ background: "var(--elc-own)" }} />Periodo actual</span>
                     <span><i style={{ background: "var(--elc-2)" }} />Periodo de comparación</span>
@@ -2008,7 +2021,7 @@ export default function App() {
               if (p.elasticity === null) continue;
               const compMin = compBySku[p.sku]?.minPrice;
               const fam = familyRules[p.sku];
-              const eff = { ...rules, ...(categoryRules[p.category] || {}), ...(fam && familyBusinessRules[fam] ? familyBusinessRules[fam] : {}) };
+              const eff = { ...(categoryRules[p.category] || rules), ...(fam && familyBusinessRules[fam] ? familyBusinessRules[fam] : {}) };
               const ruled = applyBusinessRules(p.autoSuggestedPrice ?? p.suggestedPrice, p.currentPrice, p.currentMargin, compMin, eff);
               const pf = ruled.finalPrice;
               const predQ = predictUnits(p.lastUnits, p.currentPrice, pf, p.elasticity);
@@ -2081,23 +2094,21 @@ export default function App() {
             return { name, skus, products, totalUnits, avgPrice, analysis, minP, maxP };
           }).sort((a, b) => b.totalUnits - a.totalUnits);
 
-          // El formulario de reglas edita el alcance elegido: global o una categoría. En una categoría, vacío = hereda
-          // la global (la llave se borra para que el merge no la sobreescriba con null).
-          const editRules = ruleScope === "global" ? businessRules : (categoryRules[ruleScope] || {});
-          const setEditRules = (fn) => {
-            if (ruleScope === "global") { setBusinessRules(fn); return; }
-            setCategoryRules(cr => {
-              const next = fn(cr[ruleScope] || {});
-              const clean = Object.fromEntries(Object.entries(next).filter(([, v]) => v !== null && v !== undefined && !(typeof v === "number" && !isFinite(v))));
-              const n = { ...cr };
-              if (Object.keys(clean).length) n[ruleScope] = clean; else delete n[ruleScope];
-              return n;
-            });
+          // Matriz de reglas por categoría: cada renglón es un juego COMPLETO de reglas que sustituye al global
+          const catRows = Object.keys(categoryRules).sort();
+          const skusByCat = {};
+          for (const p of data.products) skusByCat[p.category] = (skusByCat[p.category] || 0) + 1;
+          const globalSkus = data.products.filter(p => !categoryRules[p.category]).length;
+          const setCatRule = (cat, k, v) => setCategoryRules(cr => ({ ...cr, [cat]: { ...cr[cat], [k]: typeof v === "number" && !isFinite(v) ? null : v } }));
+          const addCat = () => {
+            if (!catToAdd) return;
+            setCategoryRules(cr => ({ ...cr, [catToAdd]: { ...businessRules } }));
+            logAudit({ action: "RULES_CATEGORY_ADD", detail: `Reglas propias para la categoría ${catToAdd} (base: globales)` });
+            setCatToAdd("");
           };
-          const ph = (k, fallback) => {
-            if (ruleScope === "global") return fallback;
-            const g = businessRules[k];
-            return g === null || g === undefined ? "sin regla" : `global: ${g}`;
+          const removeCat = (cat) => {
+            setCategoryRules(cr => { const n = { ...cr }; delete n[cat]; return n; });
+            logAudit({ action: "RULES_CATEGORY_REMOVE", detail: `La categoría ${cat} vuelve a las reglas globales` });
           };
 
           const handleFamilyUpload = (file) => {
@@ -2184,30 +2195,11 @@ export default function App() {
           return (
             <div style={{ paddingBottom: 30 }}>
               {adminSection === "rules" && (<>
-              <SectionHead ic="⚖️">Reglas de Negocio</SectionHead>
-
-              {/* Alcance: todo el portafolio o una categoría; precedencia familia > categoría > escenario > global */}
-              <div className="el-card el-scope">
-                <Sel label="Aplicar a" value={ruleScope} onChange={setRuleScope}
-                  options={[{ v: "global", t: "Todo el portafolio (global)" }, ...allCategories.map(c => ({ v: c, t: `Categoría: ${c}${categoryRules[c] ? " ●" : ""}` }))]} />
-                <div className="el-note" style={{ margin: 0, flex: 1, minWidth: 240 }}>
-                  {ruleScope === "global"
-                    ? <>Estas reglas aplican a todo el portafolio. Para una categoría con necesidades distintas, elígela arriba: solo los campos que llenes ahí reemplazan a los globales.</>
-                    : <>Editando <b>{ruleScope}</b>: deja un campo vacío para usar la regla global (se muestra en gris). Precedencia: <b>familia &gt; categoría &gt; escenario &gt; global</b>.</>}
-                </div>
-                {Object.keys(categoryRules).length > 0 && (
-                  <div className="el-scope-list">
-                    <span>Categorías con reglas propias:</span>
-                    {Object.keys(categoryRules).sort().map(c => (
-                      <button key={c} className={`el-btn el-btn-sm${ruleScope === c ? " on" : ""}`} onClick={() => setRuleScope(c)}>{c}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <SectionHead ic="⚖️">Reglas Globales (todo el portafolio)</SectionHead>
 
               <div className="el-card" style={{ padding: 18, marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.6, marginBottom: 14 }}>
-                  Estas reglas se aplican <strong>antes de mostrar el precio sugerido</strong> en el Portafolio. Si una regla se activa y modifica el precio, la razón queda registrada en la columna de razón. Deja un campo vacío para desactivar esa regla.
+                  Estas reglas se aplican <strong>antes de mostrar el precio sugerido</strong> en el Portafolio, a todas las categorías que no tengan reglas propias (abajo). Si una regla se activa y modifica el precio, la razón queda registrada en la columna de razón. Deja un campo vacío para desactivar esa regla.
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
@@ -2215,9 +2207,9 @@ export default function App() {
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Cambio máximo vs precio actual</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <input type="number" min="0" max="100" step="1"
-                        value={editRules.maxPctChange ?? ""}
-                        placeholder={ph("maxPctChange", "30")}
-                        onChange={(e) => setEditRules(r => ({ ...r, maxPctChange: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        value={businessRules.maxPctChange ?? ""}
+                        placeholder="30"
+                        onChange={(e) => setBusinessRules(r => ({ ...r, maxPctChange: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                         className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>% (±)</span>
@@ -2229,9 +2221,9 @@ export default function App() {
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Margen mínimo permitido</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <input type="number" min="0" max="100" step="1"
-                        value={editRules.minMarginPct ?? ""}
-                        onChange={(e) => setEditRules(r => ({ ...r, minMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        placeholder={ph("minMarginPct", "ej. 15")}
+                        value={businessRules.minMarginPct ?? ""}
+                        onChange={(e) => setBusinessRules(r => ({ ...r, minMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        placeholder="ej. 15"
                         className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>%</span>
@@ -2243,9 +2235,9 @@ export default function App() {
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Margen máximo permitido</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <input type="number" min="0" max="100" step="1"
-                        value={editRules.maxMarginPct ?? ""}
-                        onChange={(e) => setEditRules(r => ({ ...r, maxMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        placeholder={ph("maxMarginPct", "ej. 60")}
+                        value={businessRules.maxMarginPct ?? ""}
+                        onChange={(e) => setBusinessRules(r => ({ ...r, maxMarginPct: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        placeholder="ej. 60"
                         className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>%</span>
@@ -2257,9 +2249,9 @@ export default function App() {
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Max sobre competencia mínima</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <input type="number" step="1"
-                        value={editRules.priceAboveCompMin ?? ""}
-                        onChange={(e) => setEditRules(r => ({ ...r, priceAboveCompMin: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        placeholder={ph("priceAboveCompMin", "ej. 5")}
+                        value={businessRules.priceAboveCompMin ?? ""}
+                        onChange={(e) => setBusinessRules(r => ({ ...r, priceAboveCompMin: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        placeholder="ej. 5"
                         className="el-field" style={{ width: 80, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>%</span>
@@ -2272,9 +2264,9 @@ export default function App() {
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <span style={{ fontSize: 12, color: C.sub }}>$</span>
                       <input type="number" step="0.01" min="0"
-                        value={editRules.minPriceFloor ?? ""}
-                        onChange={(e) => setEditRules(r => ({ ...r, minPriceFloor: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        placeholder={ph("minPriceFloor", "0")}
+                        value={businessRules.minPriceFloor ?? ""}
+                        onChange={(e) => setBusinessRules(r => ({ ...r, minPriceFloor: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        placeholder="0"
                         className="el-field" style={{ width: 100, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                     </div>
@@ -2286,9 +2278,9 @@ export default function App() {
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <span style={{ fontSize: 12, color: C.sub }}>$</span>
                       <input type="number" step="0.01" min="0"
-                        value={editRules.maxPriceCeiling ?? ""}
-                        onChange={(e) => setEditRules(r => ({ ...r, maxPriceCeiling: e.target.value === "" ? null : parseFloat(e.target.value) }))}
-                        placeholder={ph("maxPriceCeiling", "sin límite")}
+                        value={businessRules.maxPriceCeiling ?? ""}
+                        onChange={(e) => setBusinessRules(r => ({ ...r, maxPriceCeiling: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                        placeholder="sin límite"
                         className="el-field" style={{ width: 100, padding: "8px 10px", borderRadius: 6, fontSize: 12 }}
                       />
                     </div>
@@ -2298,11 +2290,10 @@ export default function App() {
                   <div>
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Redondeo psicológico</label>
                     <select
-                      value={editRules.roundingMode ?? ""}
-                      onChange={(e) => setEditRules(r => ({ ...r, roundingMode: e.target.value || null }))}
+                      value={businessRules.roundingMode}
+                      onChange={(e) => setBusinessRules(r => ({ ...r, roundingMode: e.target.value }))}
                       className="el-field" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                     >
-                      {ruleScope !== "global" && <option value="">Igual que la regla global</option>}
                       <option value="none">Ninguno (2 decimales)</option>
                       <option value="integer">Entero</option>
                       <option value="ending_99">Terminación .99</option>
@@ -2315,15 +2306,14 @@ export default function App() {
                   <div>
                     <label style={{ fontSize: 10, color: C.sub, fontWeight: 700, textTransform: "uppercase" }}>Si el modelo no es confiable</label>
                     <select
-                      value={editRules.lowConfidence ?? ""}
+                      value={businessRules.lowConfidence}
                       onChange={(e) => {
-                        const v = e.target.value || null;
-                        setEditRules(r => ({ ...r, lowConfidence: v }));
-                        logAudit({ action: "RULES_LOW_CONFIDENCE", detail: `${ruleScope === "global" ? "Global" : ruleScope} · sin modelo confiable: ${v === "hold" ? "mantener precio" : v === "suggest" ? "sugerir de todos modos" : "igual que global"}` });
+                        const v = e.target.value;
+                        setBusinessRules(r => ({ ...r, lowConfidence: v }));
+                        logAudit({ action: "RULES_LOW_CONFIDENCE", detail: `Global · sin modelo confiable: ${v === "hold" ? "mantener precio" : "sugerir de todos modos"}` });
                       }}
                       className="el-field" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, fontSize: 12, marginTop: 4 }}
                     >
-                      {ruleScope !== "global" && <option value="">Igual que la regla global</option>}
                       <option value="hold">Mantener el precio actual (recomendado)</option>
                       <option value="suggest">Sugerir precio de todos modos</option>
                     </select>
@@ -2333,33 +2323,93 @@ export default function App() {
 
                 <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button onClick={() => {
-                    if (ruleScope === "global") {
-                      setBusinessRules({
-                        maxPctChange: 30, minMarginPct: null, maxMarginPct: null,
-                        minPriceFloor: null, maxPriceCeiling: null,
-                        priceAboveCompMin: null, roundingMode: "none", lowConfidence: "hold",
-                      });
-                      logAudit({ action: "RULES_RESET_GLOBAL", detail: "Reset reglas de negocio globales a default" });
-                    } else {
-                      setCategoryRules(cr => { const n = { ...cr }; delete n[ruleScope]; return n; });
-                      logAudit({ action: "RULES_RESET_CATEGORY", detail: `Quitar reglas propias de la categoría ${ruleScope}` });
-                    }
+                    setBusinessRules({
+                      maxPctChange: 30, minMarginPct: null, maxMarginPct: null,
+                      minPriceFloor: null, maxPriceCeiling: null,
+                      priceAboveCompMin: null, roundingMode: "none", lowConfidence: "hold",
+                    });
+                    logAudit({ action: "RULES_RESET_GLOBAL", detail: "Reset reglas de negocio globales a default" });
                   }} className="el-btn" style={{ padding: "7px 14px", color: C.sub, fontSize: 11, cursor: "pointer" }}>
-                    {ruleScope === "global" ? "Resetear valores" : "Quitar reglas de esta categoría"}
+                    Resetear valores
                   </button>
                   <div style={{ flex: 1, fontSize: 11, color: C.sub, alignSelf: "center" }}>
                     <strong style={{ color: C.navy }}>Activas ahora:</strong>{" "}
                     {[
-                      editRules.maxPctChange ? `cambio máx ${editRules.maxPctChange}%` : null,
-                      editRules.minMarginPct ? `margen mín ${editRules.minMarginPct}%` : null,
-                      editRules.maxMarginPct ? `margen máx ${editRules.maxMarginPct}%` : null,
-                      editRules.priceAboveCompMin !== null ? `max ${editRules.priceAboveCompMin}% vs comp.` : null,
-                      editRules.minPriceFloor ? `piso $${editRules.minPriceFloor}` : null,
-                      editRules.maxPriceCeiling ? `techo $${editRules.maxPriceCeiling}` : null,
-                      editRules.roundingMode !== "none" ? `redondeo ${editRules.roundingMode}` : null,
+                      businessRules.maxPctChange ? `cambio máx ${businessRules.maxPctChange}%` : null,
+                      businessRules.minMarginPct ? `margen mín ${businessRules.minMarginPct}%` : null,
+                      businessRules.maxMarginPct ? `margen máx ${businessRules.maxMarginPct}%` : null,
+                      businessRules.priceAboveCompMin != null ? `max ${businessRules.priceAboveCompMin}% vs comp.` : null,
+                      businessRules.minPriceFloor ? `piso $${businessRules.minPriceFloor}` : null,
+                      businessRules.maxPriceCeiling ? `techo $${businessRules.maxPriceCeiling}` : null,
+                      businessRules.roundingMode && businessRules.roundingMode !== "none" ? `redondeo ${businessRules.roundingMode}` : null,
                     ].filter(Boolean).join(" · ") || "ninguna"}
                   </div>
                 </div>
+              </div>
+
+              {/* Reglas por categoría: matriz editable; cada renglón sustituye por completo a las reglas globales */}
+              <SectionHead>Reglas por Categoría</SectionHead>
+              <p className="el-note" style={{ marginTop: -4, marginBottom: 12 }}>
+                Una categoría con reglas propias <b>deja de usar las reglas globales y el escenario</b>: aplica solo lo que ves en su renglón (vacío = sin esa regla). Al agregarla arranca como copia de las globales para que solo cambies lo que necesites. Las reglas de familia siguen teniendo prioridad.
+              </p>
+              <div className="el-card el-pad el-mtx-card">
+                <div className="el-mtx-add">
+                  <Sel label="Agregar categoría" value={catToAdd} onChange={setCatToAdd}
+                    options={[{ v: "", t: "Elige una categoría…" }, ...allCategories.filter(c => !categoryRules[c]).map(c => ({ v: c, t: `${c} · ${fmtInt(skusByCat[c] || 0)} SKUs` }))]} />
+                  <button className="el-btn-pri" style={{ padding: "9px 16px", fontSize: 12, fontWeight: 600, cursor: catToAdd ? "pointer" : "not-allowed" }} disabled={!catToAdd} onClick={addCat}>
+                    Agregar reglas propias
+                  </button>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table className="el-tbl el-mtx">
+                    <thead>
+                      <tr>
+                        <th>Categoría</th><th>SKUs</th>
+                        {RULE_COLS.map(c => <th key={c.k}>{c.t}<br /><span className="el-mtx-u">{c.unit}</span></th>)}
+                        <th>Redondeo</th><th>Si el modelo no<br />es confiable</th><th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="el-mtx-global">
+                        <td><b>Global</b><small>resto del portafolio · {SCENARIOS[scenario].label}</small></td>
+                        <td>{fmtInt(globalSkus)}</td>
+                        {RULE_COLS.map(c => <td key={c.k}>{effectiveGlobalRules[c.k] ?? "—"}</td>)}
+                        <td>{ROUNDING_LABELS[effectiveGlobalRules.roundingMode] || "Ninguno"}</td>
+                        <td>{effectiveGlobalRules.lowConfidence === "suggest" ? "Sugerir" : "Mantener precio"}</td>
+                        <td />
+                      </tr>
+                      {catRows.map(cat => {
+                        const r = categoryRules[cat];
+                        return (
+                          <tr key={cat}>
+                            <td><b>{cat}</b><small>reglas propias</small></td>
+                            <td>{fmtInt(skusByCat[cat] || 0)}</td>
+                            {RULE_COLS.map(c => (
+                              <td key={c.k}>
+                                <input type="number" step={c.unit === "$" ? "0.01" : "1"} className="el-field el-mtx-in" placeholder="—" aria-label={`${c.t} de ${cat}`}
+                                  value={r[c.k] ?? ""} onChange={e => setCatRule(cat, c.k, e.target.value === "" ? null : parseFloat(e.target.value))}
+                                  onBlur={e => logAudit({ action: "RULES_CATEGORY_EDIT", detail: `${cat} · ${c.t}: ${e.target.value || "sin regla"}` })} />
+                              </td>
+                            ))}
+                            <td>
+                              <select className="el-field el-mtx-sel" aria-label={`Redondeo de ${cat}`} value={r.roundingMode || "none"} onChange={e => setCatRule(cat, "roundingMode", e.target.value)}>
+                                {Object.entries(ROUNDING_LABELS).map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                              </select>
+                            </td>
+                            <td>
+                              <select className="el-field el-mtx-sel" aria-label={`Si el modelo no es confiable en ${cat}`} value={r.lowConfidence || "hold"} onChange={e => setCatRule(cat, "lowConfidence", e.target.value)}>
+                                <option value="hold">Mantener precio</option>
+                                <option value="suggest">Sugerir</option>
+                              </select>
+                            </td>
+                            <td><button className="el-btn el-btn-sm" onClick={() => removeCat(cat)} aria-label={`Quitar reglas propias de ${cat}`}>Quitar</button></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {catRows.length === 0 && <div className="el-empty">Ninguna categoría tiene reglas propias: todo el portafolio usa las reglas globales.</div>}
               </div>
 
               </>)}

@@ -172,10 +172,21 @@ body { background: #ffffff; min-height: 100vh; -webkit-font-smoothing: antialias
 .sp.db-ui .el-chain { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .sp.db-ui .el-chain > span { font-family: var(--db-font-display); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--db-ink-2); }
 
-/* Reglas: selector de alcance (global / categoría) */
-.sp.db-ui .el-scope { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 18px; padding: 14px 18px; margin-bottom: 14px; }
-.sp.db-ui .el-scope-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; font-size: 12px; color: var(--db-ink-2); }
-.sp.db-ui .el-scope-list .el-btn.on { border-color: color-mix(in srgb, var(--db-accent) 55%, transparent); color: var(--db-accent-ink); }
+/* Reglas por categoría: matriz editable. z-index (como .md-filtros) para que la lista de "Agregar categoría"
+   quede sobre lo que sigue */
+.sp.db-ui .el-mtx-card { z-index: 5; }
+.sp.db-ui .el-mtx-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
+.sp.db-ui .el-mtx-add .md-menu-lista { min-width: 340px; max-height: 360px; }
+.sp.db-ui .el-mtx th { vertical-align: bottom; text-align: center; line-height: 1.3; }
+.sp.db-ui .el-mtx td { text-align: center; vertical-align: middle; }
+.sp.db-ui .el-mtx tbody tr { cursor: default; }
+.sp.db-ui .el-mtx td:first-child { min-width: 180px; }
+.sp.db-ui .el-mtx td:first-child b { display: block; }
+.sp.db-ui .el-mtx td:first-child small { font-size: 10.5px; color: var(--db-ink-3); }
+.sp.db-ui .el-mtx-u { font-weight: 400; text-transform: none; color: var(--db-ink-3); }
+.sp.db-ui .el-mtx-global td { background: var(--db-track-bg); color: var(--db-ink-2); }
+.sp.db-ui .el-mtx-in { width: 72px; padding: 6px 8px; border-radius: 6px; font-size: 12px; text-align: right; }
+.sp.db-ui .el-mtx-sel { padding: 6px 8px; border-radius: 6px; font-size: 12px; }
 
 /* Cascada: lectura en lenguaje llano + ejemplo desplegable */
 .sp.db-ui .el-story { margin-top: 10px; padding: 10px 14px; border-radius: var(--db-r-sm); background: var(--db-track-bg); font-size: 13px; line-height: 1.55; color: var(--db-ink); }
@@ -196,6 +207,10 @@ body { background: #ffffff; min-height: 100vh; -webkit-font-smoothing: antialias
 .sp.db-ui .el-note b { color: var(--db-ink); font-weight: 600; }
 .sp.db-ui .el-empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--db-ink-3); }
 .sp.db-ui .el-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+/* Tarjeta en columna cuya gráfica crece hasta el alto de la celda del grid (mínimo 260 px) */
+.sp.db-ui .el-col { display: flex; flex-direction: column; }
+.sp.db-ui .el-fill { flex: 1; min-height: 260px; position: relative; }
+.sp.db-ui .el-fill > .recharts-responsive-container { position: absolute; inset: 0; }
 .sp.db-ui .el-perf-ctrl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 14px; }
 .sp.db-ui .el-perf-ctrl .el-note { margin: 0; flex: 1; min-width: 220px; }
 .sp.db-ui .el-btn-sm { padding: 7px 12px; font-size: 12px; cursor: pointer; }
